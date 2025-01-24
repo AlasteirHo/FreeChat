@@ -27,9 +27,9 @@ public class ClientGUI extends JFrame {
 
         // Add a window listener to handle the close event
         addWindowListener(new WindowAdapter() {
-
+            @Override
             public void windowClosing(WindowEvent e) {
-                quit(); // Call the quit method to leave the group
+                showExitConfirmation(); // Show confirmation dialog before quitting
             }
         });
 
@@ -77,6 +77,7 @@ public class ClientGUI extends JFrame {
 
         // Send button action
         sendButton.addActionListener(new ActionListener() {
+            @Override
             public void actionPerformed(ActionEvent e) {
                 sendMessage();
             }
@@ -84,6 +85,7 @@ public class ClientGUI extends JFrame {
 
         // Private button action
         privateButton.addActionListener(new ActionListener() {
+            @Override
             public void actionPerformed(ActionEvent e) {
                 sendPrivateMessage();
             }
@@ -91,6 +93,7 @@ public class ClientGUI extends JFrame {
 
         // Request Details button action
         requestDetailsButton.addActionListener(new ActionListener() {
+            @Override
             public void actionPerformed(ActionEvent e) {
                 requestMemberDetails();
             }
@@ -98,14 +101,15 @@ public class ClientGUI extends JFrame {
 
         // Quit button action
         quitButton.addActionListener(new ActionListener() {
-
+            @Override
             public void actionPerformed(ActionEvent e) {
-                quit();
+                showExitConfirmation(); // Show confirmation dialog before quitting
             }
         });
 
         // Enter key action
         inputField.addActionListener(new ActionListener() {
+            @Override
             public void actionPerformed(ActionEvent e) {
                 sendMessage();
             }
@@ -171,6 +175,19 @@ public class ClientGUI extends JFrame {
             System.exit(0); // Exit the program
         } catch (IOException e) {
             e.printStackTrace();
+        }
+    }
+
+    private void showExitConfirmation() {
+        int choice = JOptionPane.showConfirmDialog(
+                this,
+                "Are you sure you want to exit?",
+                "Exit",
+                JOptionPane.YES_NO_OPTION
+        );
+
+        if (choice == JOptionPane.YES_OPTION) {
+            quit(); // Quit the application if the user confirms
         }
     }
 
