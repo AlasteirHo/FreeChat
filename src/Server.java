@@ -26,6 +26,11 @@ public class Server {
                 ClientHandler clientHandler = new ClientHandler(clientSocket, this);
                 clients.add(clientHandler);
                 new Thread(clientHandler).start();
+
+                // Elect a coordinator if none exists
+                if (coordinator == null) {
+                    electCoordinator(clientHandler);
+                }
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -36,7 +41,7 @@ public class Server {
         if (coordinator == null) {
             coordinator = clientHandler;
             clientHandler.setCoordinator(true);
-            System.out.println("Electing new coordinator: " + clientHandler.getUsername() + clientHandler.getClientId()); // Debug
+            System.out.println("Electing new coordinator: " + clientHandler.getUsername() + clientHandler.getClientId());
             broadcast("New coordinator elected: " + clientHandler.getUsername() + clientHandler.getClientId());
         }
     }
@@ -50,7 +55,7 @@ public class Server {
     public void sendPrivateMessage(String senderId, String recipientId, String message) {
         for (ClientHandler client : clients) {
             if (client.getClientId().equals(recipientId)) {
-                client.sendMessage(senderId + " (private to " + recipientId + "): " + message);
+                client.sendMessage(senderId + " (sent privately to you): " + message);
                 break;
             }
         }
@@ -62,19 +67,36 @@ public class Server {
             electNewCoordinator();
         }
         broadcast("Client " + client.getUsername() + client.getClientId() + " has left the group.");
+
+        // Close the client socket and clean up resources
+        try {
+            client.getClientSocket().close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     private void electNewCoordinator() {
         if (!clients.isEmpty()) {
-            coordinator = clients.get(0); // Elect the first client as the new coordinator
+            // Elect the first client in the list as the new coordinator
+            coordinator = clients.get(0);
             coordinator.setCoordinator(true);
-            broadcast("New coordinator elected: " + coordinator.getUsername() + coordinator.getClientId());
+
+            // Ensure that the username and clientId are not null before broadcasting
+            String coordinatorUsername = coordinator.getUsername();
+            String coordinatorClientId = coordinator.getClientId();
+
+            if (coordinatorUsername != null && coordinatorClientId != null) {
+                System.out.println("New coordinator elected: " + coordinatorUsername + coordinatorClientId);
+                broadcast("New coordinator elected: " + coordinatorUsername + coordinatorClientId);
+            } else {
+                System.out.println("New coordinator elected, but username or clientId is null.");
+            }
         } else {
             coordinator = null;
             System.out.println("No clients left. Coordinator is null.");
         }
     }
-
     public void requestMemberDetails(ClientHandler requester) {
         if (coordinator != null) {
             coordinator.sendMemberDetails(requester);

@@ -5,13 +5,13 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class ClientHandler implements Runnable {
-    private Socket clientSocket;
-    private Server server;
+    private final Socket clientSocket;
+    private final Server server;
     private PrintWriter out;
     private BufferedReader in;
     private String clientId;
     private boolean isCoordinator;
-    private static Map<String, Integer> usernameToIdMap = new HashMap<>(); // Map usernames to their IDs
+    private static final Map<String, Integer> usernameToIdMap = new HashMap<>(); // Map usernames to their IDs
     private String username; // Store the username
 
     public ClientHandler(Socket socket, Server server) {
@@ -40,7 +40,6 @@ public class ClientHandler implements Runnable {
         return id;
     }
 
-    @Override
     public void run() {
         if (out == null || in == null) {
             System.err.println("Streams are not initialized for client.");
@@ -122,12 +121,15 @@ public class ClientHandler implements Runnable {
     public void sendMemberDetails(ClientHandler requester) {
         StringBuilder details = new StringBuilder("Member Details:\n");
         for (ClientHandler client : server.getClients()) {
-            details.append("ID: ").append(client.getClientId())
-                    .append(", IP: ").append(client.getClientSocket().getInetAddress().getHostAddress())
-                    .append(", Port: ").append(client.getClientSocket().getPort())
-                    .append("\n");
+            // Skip clients with null IDs or usernames
+            if (client.getClientId() != null && client.getUsername() != null) {
+                details.append("ID: ").append(client.getClientId())
+                        .append(", IP: ").append(client.getClientSocket().getInetAddress().getHostAddress())
+                        .append(", Port: ").append(client.getClientSocket().getPort())
+                        .append("\n");
+            }
         }
-        details.append("Current Coordinator: ").append(server.getCoordinator().getUsername() + server.getCoordinator().getClientId());
+        details.append("Current Coordinator: ").append(server.getCoordinator().getUsername()).append(server.getCoordinator().getClientId());
         requester.sendMessage(details.toString());
     }
 
