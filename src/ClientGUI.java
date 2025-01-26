@@ -18,18 +18,19 @@ public class ClientGUI extends JFrame {
     private PrintWriter out;
     private BufferedReader in;
     private String clientId;
-    private String username; // Store the username
+    private String username;
+    private JLabel serverInfoLabel; // Label to display server info
 
-    public ClientGUI(String serverAddress, int port) {
+    public ClientGUI() {
         setTitle("Chat Client");
         setSize(600, 400);
-        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE); // Prevent default close behavior
+        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
 
         // Add a window listener to handle the close event
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
-                showExitConfirmation(); // Show confirmation dialog before quitting
+                showExitConfirmation();
             }
         });
 
@@ -37,7 +38,29 @@ public class ClientGUI extends JFrame {
         username = JOptionPane.showInputDialog(this, "Enter your username:");
         if (username == null || username.trim().isEmpty()) {
             JOptionPane.showMessageDialog(this, "Username cannot be empty. Exiting...", "Error", JOptionPane.ERROR_MESSAGE);
-            System.exit(1); // Exit if the username is empty
+            System.exit(1);
+        }
+
+        // Prompt the user to enter the server's IP address and port
+        String serverAddress = JOptionPane.showInputDialog(this, "Enter the server's IP address:");
+        if (serverAddress == null || serverAddress.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Server IP address cannot be empty. Exiting...", "Error", JOptionPane.ERROR_MESSAGE);
+            System.exit(1);
+        }
+
+        String portString = JOptionPane.showInputDialog(this, "Enter the server's port:");
+        if (portString == null || portString.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Server port cannot be empty. Exiting...", "Error", JOptionPane.ERROR_MESSAGE);
+            System.exit(1);
+        }
+
+        int port;
+        try {
+            port = Integer.parseInt(portString);
+        } catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(this, "Invalid port number. Exiting...", "Error", JOptionPane.ERROR_MESSAGE);
+            System.exit(1);
+            return; // This line is unreachable, but required for compilation
         }
 
         // Main panel with BorderLayout
@@ -69,6 +92,12 @@ public class ClientGUI extends JFrame {
         inputPanel.add(quitButton, BorderLayout.SOUTH);
 
         mainPanel.add(inputPanel, BorderLayout.SOUTH);
+
+        // Server info panel
+        JPanel serverInfoPanel = new JPanel();
+        serverInfoLabel = new JLabel("Server IP: " + serverAddress + ", Server Port: " + port); // Display server info
+        serverInfoPanel.add(serverInfoLabel);
+        mainPanel.add(serverInfoPanel, BorderLayout.NORTH); // Add server info to the top of the UI
 
         add(mainPanel);
 
@@ -103,7 +132,7 @@ public class ClientGUI extends JFrame {
         quitButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                showExitConfirmation(); // Show confirmation dialog before quitting
+                showExitConfirmation();
             }
         });
 
@@ -133,6 +162,9 @@ public class ClientGUI extends JFrame {
             clientId = in.readLine();
             System.out.println("Connected to server. Your ID is: " + clientId);
             chatArea.append("Connected to server. Your ID is: " + clientId + "\n");
+
+            // Update the window title to include the username and ID
+            setTitle(username + clientId + " Chat Client");
         } catch (IOException e) {
             e.printStackTrace();
             JOptionPane.showMessageDialog(this, "Failed to connect to the server.", "Error", JOptionPane.ERROR_MESSAGE);
@@ -211,7 +243,7 @@ public class ClientGUI extends JFrame {
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
-            ClientGUI clientGUI = new ClientGUI("localhost", 5000);
+            ClientGUI clientGUI = new ClientGUI();
             clientGUI.setVisible(true);
         });
     }
