@@ -11,25 +11,25 @@ public class ClientGUI extends JFrame {
     private JTextArea chatArea;
     private JTextField inputField;
     private JButton sendButton;
-    private JButton privateButton;
+    private JComboBox<String> chatModeComboBox;
     private JButton requestDetailsButton;
     private JButton quitButton;
     private Socket socket;
     private PrintWriter out;
     private BufferedReader in;
     private String clientId;
-    private String username; // Store the username
+    private String username;
+    private JLabel serverInfoLabel;
 
     public ClientGUI(String serverAddress, int port) {
         setTitle("Chat Client");
         setSize(600, 400);
-        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE); // Prevent default close behavior
+        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
 
-        // Add a window listener to handle the close event
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
-                showExitConfirmation(); // Show confirmation dialog before quitting
+                showExitConfirmation();
             }
         });
 
@@ -37,7 +37,7 @@ public class ClientGUI extends JFrame {
         username = JOptionPane.showInputDialog(this, "Enter your username:");
         if (username == null || username.trim().isEmpty()) {
             JOptionPane.showMessageDialog(this, "Username cannot be empty. Exiting...", "Error", JOptionPane.ERROR_MESSAGE);
-            System.exit(1); // Exit if the username is empty
+            System.exit(1);
         }
 
         // Main panel with BorderLayout
@@ -59,8 +59,8 @@ public class ClientGUI extends JFrame {
         sendButton = new JButton("Send");
         inputPanel.add(sendButton, BorderLayout.EAST);
 
-        privateButton = new JButton("Private");
-        inputPanel.add(privateButton, BorderLayout.WEST);
+        chatModeComboBox = new JComboBox<>(new String[]{"All", "Private"});
+        inputPanel.add(chatModeComboBox, BorderLayout.WEST);
 
         requestDetailsButton = new JButton("Request Details");
         inputPanel.add(requestDetailsButton, BorderLayout.NORTH);
@@ -69,6 +69,12 @@ public class ClientGUI extends JFrame {
         inputPanel.add(quitButton, BorderLayout.SOUTH);
 
         mainPanel.add(inputPanel, BorderLayout.SOUTH);
+
+        // Server info panel
+        JPanel serverInfoPanel = new JPanel();
+        serverInfoLabel = new JLabel("Server IP: " + serverAddress + ", Server Port: " + port);
+        serverInfoPanel.add(serverInfoLabel);
+        mainPanel.add(serverInfoPanel, BorderLayout.NORTH);
 
         add(mainPanel);
 
@@ -80,14 +86,6 @@ public class ClientGUI extends JFrame {
             @Override
             public void actionPerformed(ActionEvent e) {
                 sendMessage();
-            }
-        });
-
-        // Private button action
-        privateButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                sendPrivateMessage();
             }
         });
 
@@ -103,7 +101,7 @@ public class ClientGUI extends JFrame {
         quitButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                showExitConfirmation(); // Show confirmation dialog before quitting
+                showExitConfirmation();
             }
         });
 
@@ -132,47 +130,50 @@ public class ClientGUI extends JFrame {
             // Read the unique ID assigned by the server
             clientId = in.readLine();
             System.out.println("Connected to server. Your ID is: " + clientId);
-            chatArea.append("Connected to server. Your ID is: " + clientId + "\n");
+
+            // Display server connection details
+            String serverConnectionDetails = "Server Connection:\n" +
+                    "Network IP: " + serverAddress + ", Port: " + port + "\n" +
+                    "Local IP: 127.0.0.1, Port: " + port;
+            chatArea.append(serverConnectionDetails + "\n");
+
+            // Update the window title to include the username and ID
+            setTitle(username + clientId + " Chat Client");
         } catch (IOException e) {
             e.printStackTrace();
             JOptionPane.showMessageDialog(this, "Failed to connect to the server.", "Error", JOptionPane.ERROR_MESSAGE);
-            System.exit(1); // Exit the program if connection fails
+            System.exit(1);
         }
     }
 
     private void sendMessage() {
         String message = inputField.getText();
         if (!message.isEmpty()) {
-            out.println(message);
-            inputField.setText("");
-        }
-    }
-
-    private void sendPrivateMessage() {
-        String recipientId = JOptionPane.showInputDialog(this, "Enter recipient ID:");
-        if (recipientId != null && !recipientId.isEmpty()) {
-            String message = inputField.getText();
-            if (!message.isEmpty()) {
-                System.out.println("Sending private message to " + recipientId + ": " + message); // Debug statement
-                out.println("/private " + recipientId + " " + message);
-                inputField.setText("");
+            String chatMode = (String) chatModeComboBox.getSelectedItem();
+            if (chatMode.equals("Private")) {
+                String recipientId = JOptionPane.showInputDialog(this, "Enter recipient ID:");
+                if (recipientId != null && !recipientId.isEmpty()) {
+                    out.println("/private " + recipientId + " " + message);
+                    inputField.setText("");
+                } else {
+                    JOptionPane.showMessageDialog(this, "Recipient ID cannot be empty.", "Error", JOptionPane.ERROR_MESSAGE);
+                }
             } else {
-                System.out.println("Message is empty."); // Debug statement
+                out.println(message);
+                inputField.setText("");
             }
-        } else {
-            System.out.println("Recipient ID is empty or invalid."); // Debug statement
         }
     }
 
     private void requestMemberDetails() {
-        out.println("/requestDetails"); // Send a request to the server for member details
+        out.println("/requestDetails");
     }
 
     private void quit() {
         try {
-            out.println("exit"); // Notify the server that the client is leaving
-            socket.close(); // Close the socket
-            System.exit(0); // Exit the program
+            out.println("exit");
+            socket.close();
+            System.exit(0);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -187,7 +188,7 @@ public class ClientGUI extends JFrame {
         );
 
         if (choice == JOptionPane.YES_OPTION) {
-            quit(); // Quit the application if the user confirms
+            quit();
         }
     }
 
@@ -195,24 +196,14 @@ public class ClientGUI extends JFrame {
         try {
             String message;
             while ((message = in.readLine()) != null) {
-                System.out.println("Received message: " + message); // Debug statement
-
-                // Create a final variable for use in the lambda
+                System.out.println("Received message: " + message);
                 String finalMessage = message;
                 SwingUtilities.invokeLater(() -> {
-                    // Display the message in the chat area
                     chatArea.append(finalMessage + "\n");
                 });
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
-    }
-
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
-            ClientGUI clientGUI = new ClientGUI("localhost", 5000);
-            clientGUI.setVisible(true);
-        });
     }
 }

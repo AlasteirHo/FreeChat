@@ -7,25 +7,59 @@ public class Server {
     private ServerSocket serverSocket;
     private List<ClientHandler> clients;
     private ClientHandler coordinator;
+    private String serverIpLocal; // Localhost IP (127.0.0.1)
+    private String serverIpNetwork; // Network IP (e.g., 192.168.x.x)
 
     public Server(int port) {
         this.port = port;
         this.clients = new ArrayList<>();
-        this.coordinator = null; // Initialize coordinator to null
+        this.coordinator = null;
+        try {
+            // Get localhost IP
+            this.serverIpLocal = "127.0.0.1";
+
+            // Get network IP
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface iface = interfaces.nextElement();
+                if (iface.isLoopback() || !iface.isUp()) continue; // Skip loopback and inactive interfaces
+
+                Enumeration<InetAddress> addresses = iface.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress addr = addresses.nextElement();
+                    if (addr instanceof Inet4Address) { // Only consider IPv4 addresses
+                        this.serverIpNetwork = addr.getHostAddress();
+                        break;
+                    }
+                }
+            }
+        } catch (SocketException e) {
+            e.printStackTrace();
+            this.serverIpLocal = "127.0.0.1";
+            this.serverIpNetwork = "Unknown";
+        }
     }
 
     public void start() {
         try {
             serverSocket = new ServerSocket(port);
-            System.out.println("Server started on port " + port);
+            System.out.println("Server started on IPs: " + serverIpLocal + " and " + serverIpNetwork + ", Port: " + port);
 
             while (true) {
                 Socket clientSocket = serverSocket.accept();
-                System.out.println("New client connected: " + clientSocket);
+                String clientIp = clientSocket.getInetAddress().getHostAddress();
 
-                ClientHandler clientHandler = new ClientHandler(clientSocket, this);
-                clients.add(clientHandler);
-                new Thread(clientHandler).start();
+                // Allow localhost (127.0.0.1), the server's own IP, and same network IPs
+                if (clientIp.equals("127.0.0.1") || clientIp.equals(serverIpNetwork) || clientIp.startsWith("192.168.")) {
+                    System.out.println("New client connected: " + clientSocket);
+
+                    ClientHandler clientHandler = new ClientHandler(clientSocket, this, serverIpNetwork, port);
+                    clients.add(clientHandler);
+                    new Thread(clientHandler).start();
+                } else {
+                    System.out.println("Rejected connection from client with IP: " + clientIp);
+                    clientSocket.close(); // Close the connection
+                }
             }
         } catch (IOException e) {
             e.printStackTrace();
