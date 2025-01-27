@@ -11,7 +11,7 @@ public class ClientGUI extends JFrame {
     private JTextArea chatArea;
     private JTextField inputField;
     private JButton sendButton;
-    private JButton privateButton;
+    private JComboBox<String> chatModeComboBox; // Dropdown for chat mode
     private JButton requestDetailsButton;
     private JButton quitButton;
     private Socket socket;
@@ -82,8 +82,9 @@ public class ClientGUI extends JFrame {
         sendButton = new JButton("Send");
         inputPanel.add(sendButton, BorderLayout.EAST);
 
-        privateButton = new JButton("Private");
-        inputPanel.add(privateButton, BorderLayout.WEST);
+        // Dropdown for chat mode (All/Private)
+        chatModeComboBox = new JComboBox<>(new String[]{"All", "Private"});
+        inputPanel.add(chatModeComboBox, BorderLayout.WEST);
 
         requestDetailsButton = new JButton("Request Details");
         inputPanel.add(requestDetailsButton, BorderLayout.NORTH);
@@ -109,14 +110,6 @@ public class ClientGUI extends JFrame {
             @Override
             public void actionPerformed(ActionEvent e) {
                 sendMessage();
-            }
-        });
-
-        // Private button action
-        privateButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                sendPrivateMessage();
             }
         });
 
@@ -175,24 +168,20 @@ public class ClientGUI extends JFrame {
     private void sendMessage() {
         String message = inputField.getText();
         if (!message.isEmpty()) {
-            out.println(message);
-            inputField.setText("");
-        }
-    }
-
-    private void sendPrivateMessage() {
-        String recipientId = JOptionPane.showInputDialog(this, "Enter recipient ID:");
-        if (recipientId != null && !recipientId.isEmpty()) {
-            String message = inputField.getText();
-            if (!message.isEmpty()) {
-                System.out.println("Sending private message to " + recipientId + ": " + message); // Debug statement
-                out.println("/private " + recipientId + " " + message);
-                inputField.setText("");
+            String chatMode = (String) chatModeComboBox.getSelectedItem();
+            if (chatMode.equals("Private")) {
+                String recipientId = JOptionPane.showInputDialog(this, "Enter recipient ID:");
+                if (recipientId != null && !recipientId.isEmpty()) {
+                    out.println("/private " + recipientId + " " + message);
+                    inputField.setText(""); // Clear the input field only after sending the message
+                } else {
+                    // Do not clear the input field if the recipient ID is not provided
+                    JOptionPane.showMessageDialog(this, "Recipient ID cannot be empty.", "Error", JOptionPane.ERROR_MESSAGE);
+                }
             } else {
-                System.out.println("Message is empty."); // Debug statement
+                out.println(message); // Send to all
+                inputField.setText(""); // Clear the input field after sending the message
             }
-        } else {
-            System.out.println("Recipient ID is empty or invalid."); // Debug statement
         }
     }
 
