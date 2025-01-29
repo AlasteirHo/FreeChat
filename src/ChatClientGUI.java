@@ -150,7 +150,7 @@ public class ChatClientGUI extends JFrame {
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(5, 5, 5, 5);
 
-        recipientBox = new JComboBox<>(new String[]{"Broadcast"});
+        recipientBox = new JComboBox<>(new String[]{"All Channel"});
         recipientBox.setPreferredSize(new Dimension(150, 25));
         messageField = new JTextField();
         messageField.setPreferredSize(new Dimension(300, 25));
