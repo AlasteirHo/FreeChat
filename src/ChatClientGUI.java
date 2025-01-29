@@ -155,7 +155,7 @@ public class ChatClientGUI extends JFrame {
         messageField = new JTextField();
         messageField.setPreferredSize(new Dimension(300, 25));
         JButton sendButton = new JButton("Send");
-        JButton getMembersButton = new JButton("Get Members");
+        JButton getMembersButton = new JButton("Request Details");
         JButton quitButton = new JButton("Quit");
 
         gbc.gridx = 0; gbc.gridy = 0;
