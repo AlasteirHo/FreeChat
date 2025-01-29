@@ -1,132 +1,184 @@
 import java.io.*;
 import java.net.*;
 import java.util.*;
+import java.util.concurrent.*;
 
 public class Server {
-    private int port;
-    private ServerSocket serverSocket;
-    private List<ClientHandler> clients;
-    private ClientHandler coordinator;
-    private String serverIpLocal; // Localhost IP (127.0.0.1)
-    private String serverIpNetwork; // Network IP (e.g., 192.168.x.x)
+    private static final int DEFAULT_PORT = 5000;
+    private final ServerSocket serverSocket;
+    private final Map<String, ClientHandler> clients = new ConcurrentHashMap<>();
+    private String currentCoordinator = null;
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private volatile boolean running = true;
+    private final ExecutorService clientThreadPool = Executors.newCachedThreadPool();
 
-    public Server(int port) {
-        this.port = port;
-        this.clients = new ArrayList<>();
-        this.coordinator = null;
+    public Server(int port) throws IOException {
+        if (port < 1024 || port > 65535) {
+            throw new IllegalArgumentException("Port must be between 1024 and 65535");
+        }
+
         try {
-            // Get localhost IP
-            this.serverIpLocal = "127.0.0.1";
+            serverSocket = new ServerSocket();
+            serverSocket.setReuseAddress(true);
+            serverSocket.bind(new InetSocketAddress(port));
+            System.out.println("Server successfully started on port " + port);
+            startAcceptingClients();
+        } catch (BindException e) {
+            throw new IOException("Port " + port + " is already in use. Please try a different port.");
+        } catch (SecurityException e) {
+            throw new IOException("Security manager prevented use of port " + port);
+        } catch (IllegalArgumentException e) {
+            throw new IOException("Invalid port number: " + port);
+        } catch (IOException e) {
+            throw new IOException("Could not start server on port " + port + ": " + e.getMessage());
+        }
+    }
 
-            // Get network IP
-            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
-            while (interfaces.hasMoreElements()) {
-                NetworkInterface iface = interfaces.nextElement();
-                if (iface.isLoopback() || !iface.isUp()) continue; // Skip loopback and inactive interfaces
-
-                Enumeration<InetAddress> addresses = iface.getInetAddresses();
-                while (addresses.hasMoreElements()) {
-                    InetAddress addr = addresses.nextElement();
-                    if (addr instanceof Inet4Address) { // Only consider IPv4 addresses
-                        this.serverIpNetwork = addr.getHostAddress();
-                        break;
+    private void startAcceptingClients() {
+        Thread acceptThread = new Thread(() -> {
+            while (!serverSocket.isClosed()) {
+                try {
+                    Socket clientSocket = serverSocket.accept();
+                    ClientHandler handler = new ClientHandler(clientSocket, this);
+                    clientThreadPool.execute(handler);
+                } catch (IOException e) {
+                    if (!serverSocket.isClosed()) {
+                        System.err.println("Accept failed: " + e.getMessage());
                     }
                 }
             }
-        } catch (SocketException e) {
-            e.printStackTrace();
-            this.serverIpLocal = "127.0.0.1";
-            this.serverIpNetwork = "Unknown";
-        }
+        });
+        acceptThread.start();
     }
 
-    public void start() {
-        try {
-            serverSocket = new ServerSocket(port);
-            System.out.println("Server started on IPs: " + serverIpLocal + " and " + serverIpNetwork + ", Port: " + port);
+    public synchronized void registerClient(String clientId, ClientHandler handler) {
+        clients.put(clientId, handler);
+        // Send coordinator info only once during registration
+        if (currentCoordinator == null) {
+            setNewCoordinator(clientId);
+        } else if (!clientId.equals(currentCoordinator)) {
+            handler.sendMessage("COORDINATOR_INFO:" + currentCoordinator);
+        }
+        // Separate member join broadcast
+        broadcastMessage("MEMBER_JOIN:" + clientId);
+        // Only send member list without coordinator info
+        String memberList = getMemberList();
+        broadcastMessage("MEMBER_LIST:" + memberList);
+    }
+    public synchronized void removeClient(String clientId) {
+        clients.remove(clientId);
+        System.out.println("Client removed: " + clientId);
+        if (clientId.equals(currentCoordinator)) {
+            assignNewCoordinator();
+        }
+        broadcastMessage("MEMBER_LEAVE:" + clientId);
+        broadcastMemberList();
+    }
 
-            while (true) {
-                Socket clientSocket = serverSocket.accept();
-                String clientIp = clientSocket.getInetAddress().getHostAddress();
-
-                // Allow localhost (127.0.0.1), the server's own IP, and same network IPs
-                if (clientIp.equals("127.0.0.1") || clientIp.equals(serverIpNetwork) || clientIp.startsWith("192.168.")) {
-                    System.out.println("New client connected: " + clientSocket);
-
-                    ClientHandler clientHandler = new ClientHandler(clientSocket, this, serverIpNetwork, port);
-                    clients.add(clientHandler);
-                    new Thread(clientHandler).start();
-                } else {
-                    System.out.println("Rejected connection from client with IP: " + clientIp);
-                    clientSocket.close(); // Close the connection
+    private synchronized void assignNewCoordinator() {
+        if (!clients.isEmpty()) {
+            String newCoordinator = clients.keySet().iterator().next();
+            if (!newCoordinator.equals(currentCoordinator)) {
+                setNewCoordinator(newCoordinator);
+                System.out.println("New coordinator assigned: " + newCoordinator);
+                for (Map.Entry<String, ClientHandler> entry : clients.entrySet()) {
+                    if (!entry.getKey().equals(newCoordinator)) {
+                        entry.getValue().sendMessage("COORDINATOR_INFO:" + newCoordinator);
+                    }
                 }
             }
-        } catch (IOException e) {
-            e.printStackTrace();
+        } else {
+            currentCoordinator = null;
+            System.out.println("No clients available for coordinator role");
         }
     }
 
-    public void electCoordinator(ClientHandler clientHandler) {
-        if (coordinator == null) {
-            coordinator = clientHandler;
-            clientHandler.setCoordinator(true);
-            System.out.println("Electing new coordinator: " + clientHandler.getUsername() + clientHandler.getClientId()); // Debug
-            broadcast("New coordinator elected: " + clientHandler.getUsername() + clientHandler.getClientId());
+    private void setNewCoordinator(String clientId) {
+        if (currentCoordinator != null && currentCoordinator.equals(clientId)) {
+            return;
+        }
+        currentCoordinator = clientId;
+        ClientHandler coordinator = clients.get(clientId);
+        if (coordinator != null) {
+            coordinator.sendMessage("COORDINATOR_STATUS:You are now the coordinator");
         }
     }
 
-    public void broadcast(String message) {
-        for (ClientHandler client : clients) {
-            client.sendMessage(message);
-        }
-    }
-
-    public void sendPrivateMessage(String senderId, String recipientId, String message) {
-        for (ClientHandler client : clients) {
-            if (client.getClientId().equals(recipientId)) {
-                client.sendMessage(senderId + " (private to " + recipientId + "): " + message);
-                break;
+    public void broadcastMessage(String message) {
+        System.out.println("Broadcasting: " + message);
+        for (ClientHandler client : new ArrayList<>(clients.values())) {
+            try {
+                client.sendMessage(message);
+            } catch (Exception e) {
+                System.err.println("Error broadcasting to client: " + e.getMessage());
             }
         }
     }
 
-    public void removeClient(ClientHandler client) {
-        clients.remove(client);
-        if (client.isCoordinator()) {
-            electNewCoordinator();
-        }
-        broadcast("Client " + client.getUsername() + client.getClientId() + " has left the group.");
+    private void broadcastMemberList() {
+        String memberList = getMemberList();
+        broadcastMessage("MEMBER_LIST:" + memberList);
     }
 
-    private void electNewCoordinator() {
-        if (!clients.isEmpty()) {
-            coordinator = clients.get(0); // Elect the first client as the new coordinator
-            coordinator.setCoordinator(true);
-            broadcast("New coordinator elected: " + coordinator.getUsername() + coordinator.getClientId());
-        } else {
-            coordinator = null;
-            System.out.println("No clients left. Coordinator is null.");
+    public void sendPrivateMessage(String from, String to, String message) {
+        ClientHandler recipient = clients.get(to);
+        if (recipient != null) {
+            recipient.sendMessage("PRIVATE_MSG:" + from + ":" + message);
         }
     }
 
-    public void requestMemberDetails(ClientHandler requester) {
-        if (coordinator != null) {
-            coordinator.sendMemberDetails(requester);
-        } else {
-            requester.sendMessage("No coordinator available.");
+    public void sendMemberDetails(String requestingClient) {
+        StringBuilder details = new StringBuilder();
+        boolean first = true;
+        for (Map.Entry<String, ClientHandler> entry : clients.entrySet()) {
+            if (!first) {
+                details.append(",");
+            }
+            ClientHandler handler = entry.getValue();
+            Socket socket = handler.getSocket();
+            details.append(String.format("%s:%s:%d",
+                    entry.getKey(),
+                    socket.getInetAddress().getHostAddress(),
+                    socket.getPort()));
+            first = false;
+        }
+        ClientHandler requester = clients.get(requestingClient);
+        if (requester != null && details.length() > 0) {
+            requester.sendMessage("MEMBER_DETAILS:" + details.toString());
         }
     }
 
-    public List<ClientHandler> getClients() {
-        return clients;
+    public String getMemberList() {
+        return String.join(",", clients.keySet());
     }
 
-    public ClientHandler getCoordinator() {
-        return coordinator;
+    public String getCurrentCoordinator() {
+        return currentCoordinator;
     }
 
-    public static void main(String[] args) {
-        Server server = new Server(5000);
-        server.start();
+    public void shutdown() {
+        try {
+            running = false;
+            for (ClientHandler client : new ArrayList<>(clients.values())) {
+                try {
+                    client.closeConnection();
+                } catch (Exception e) {
+                    System.err.println("Error closing client connection: " + e.getMessage());
+                }
+            }
+            clients.clear();
+            clientThreadPool.shutdownNow();
+            scheduler.shutdownNow();
+            if (!serverSocket.isClosed()) {
+                serverSocket.close();
+            }
+            System.out.println("Server shutdown complete");
+        } catch (IOException e) {
+            System.err.println("Error during server shutdown: " + e.getMessage());
+        }
+    }
+
+    public boolean isRunning() {
+        return !serverSocket.isClosed();
     }
 }

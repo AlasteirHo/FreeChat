@@ -1,178 +1,100 @@
 import java.io.*;
 import java.net.*;
-import java.util.Random;
-import java.util.HashMap;
-import java.util.Map;
 
 public class ClientHandler implements Runnable {
-    private Socket clientSocket;
-    private Server server;
-    private PrintWriter out;
-    private BufferedReader in;
+    private final Socket socket;
+    private final Server server;
+    private final BufferedReader in;
+    private final PrintWriter out;
     private String clientId;
-    private boolean isCoordinator;
-    private static Map<String, String> usernameToIdMap = new HashMap<>(); // Map usernames to their IDs
-    private String username; // Store the username
-    private boolean isActive = true; // Track if the client is active
+    private volatile boolean running = true;
 
-    public ClientHandler(Socket socket, Server server, String serverIp, int serverPort) {
-        this.clientSocket = socket;
+    public ClientHandler(Socket socket, Server server) throws IOException {
+        this.socket = socket;
         this.server = server;
-        this.isCoordinator = false;
-
-        try {
-            out = new PrintWriter(clientSocket.getOutputStream(), true);
-            in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-        } catch (IOException e) {
-            e.printStackTrace();
-            System.err.println("Failed to initialize streams for client.");
-        }
-    }
-
-    // Generate a random 4-digit ID that is unique
-    private String generateUniqueId() {
-        Random random = new Random();
-        String id;
-        do {
-            id = "#" + (1000 + random.nextInt(9000)); // Random number between 1000 and 9999
-        } while (usernameToIdMap.containsValue(id)); // Ensure the ID is unique
-        return id;
+        this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        this.out = new PrintWriter(socket.getOutputStream(), true);
     }
 
     @Override
     public void run() {
-        if (out == null || in == null) {
-            System.err.println("Streams are not initialized for client.");
-            return; // Exit the thread if streams are not initialized
-        }
-
         try {
-            // Read the username sent by the client
-            username = in.readLine();
-            if (username == null || username.trim().isEmpty()) {
-                System.err.println("Username is empty. Disconnecting client.");
-                return;
-            }
-
-            // Generate a new unique ID for the client
-            clientId = generateUniqueId();
-            usernameToIdMap.put(username, clientId); // Map the username to the unique ID
-
-            System.out.println("Client " + username + clientId + " connected.");
-
-            // Send the unique ID to the client
-            out.println(clientId);
-
-            // Notify the server to elect a coordinator (if none exists)
-            server.electCoordinator(this);
-
-            // Broadcast a message that the user has joined
-            server.broadcast(username + clientId + " has joined the chat.");
-
-            // Handle incoming messages
-            String inputLine;
-            while ((inputLine = in.readLine()) != null) {
-                if (inputLine.startsWith("/private")) {
-                    // Handle private message
-                    String[] parts = inputLine.split(" ", 3);
-                    if (parts.length == 3) {
-                        String recipientId = parts[1];
-                        String message = parts[2];
-                        server.sendPrivateMessage(username + clientId, recipientId, message);
+            String initialMessage = in.readLine();
+            if (initialMessage != null && initialMessage.startsWith("CONNECT:")) {
+                clientId = initialMessage.substring(8);
+                server.registerClient(clientId, this);
+                while (running && !socket.isClosed()) {
+                    String input = in.readLine();
+                    if (input == null) {
+                        break;
                     }
-                } else if (inputLine.equalsIgnoreCase("/requestDetails")) {
-                    // Handle request for member details
-                    server.requestMemberDetails(this);
-                } else if (inputLine.equalsIgnoreCase("exit")) {
-                    break;
-                } else if (inputLine.equalsIgnoreCase("ping")) {
-                    // Respond to ping from coordinator
-                    out.println("pong");
-                } else {
-                    // Handle broadcast message
-                    server.broadcast(username + clientId + ": " + inputLine);
+                    if (input.equals("QUIT")) {
+                        System.out.println("Client " + clientId + " requesting quit");
+                        break;
+                    }
+                    handleMessage(input);
                 }
             }
-
-            // Broadcast a message that the user has left
-            server.broadcast(username + clientId + " has left the chat.");
-
-            // Remove the client from the server's list
-            server.removeClient(this);
-            clientSocket.close();
         } catch (IOException e) {
-            e.printStackTrace();
+            if (running) {
+                System.err.println("Error handling client " + clientId + ": " + e.getMessage());
+            }
+        } finally {
+            closeConnection();
         }
     }
 
-    public void sendMessage(String message) {
-        if (out != null) {
+    private void handleMessage(String message) {
+        if (!running) return;
+        try {
+            if (message.startsWith("BROADCAST:")) {
+                server.broadcastMessage("MSG:" + clientId + ":" + message.substring(10));
+            } else if (message.startsWith("PRIVATE:")) {
+                String[] parts = message.substring(8).split(":", 2);
+                server.sendPrivateMessage(clientId, parts[0], parts[1]);
+            } else if (message.equals("GET_MEMBERS")) {
+                sendMessage("MEMBER_LIST:" + server.getMemberList());
+            } else if (message.equals("REQUEST_DETAILS")) {
+                server.sendMemberDetails(clientId);
+            }
+        } catch (Exception e) {
+            System.err.println("Error processing message from " + clientId + ": " + e.getMessage());
+        }
+    }
+
+    public synchronized void sendMessage(String message) {
+        if (!running || socket.isClosed()) return;
+        try {
             out.println(message);
-        } else {
-            System.err.println("Output stream is null for client: " + username + clientId);
+            if (out.checkError()) {
+                throw new IOException("Failed to send message");
+            }
+        } catch (IOException e) {
+            System.err.println("Error sending message to " + clientId + ": " + e.getMessage());
+            closeConnection();
         }
     }
 
-    public void sendMemberDetails(ClientHandler requester) {
-        StringBuilder details = new StringBuilder("Member Details:\n");
-        for (ClientHandler client : server.getClients()) {
-            details.append("ID: ").append(client.getClientId())
-                    .append(", IP: ").append(client.getClientSocket().getInetAddress().getHostAddress())
-                    .append(", Port: ").append(client.getClientSocket().getPort())
-                    .append("\n");
+    public synchronized void closeConnection() {
+        if (!running) return;
+        running = false;
+        try {
+            if (clientId != null && server.isRunning()) {
+                server.removeClient(clientId);
+            }
+            if (!socket.isClosed()) {
+                socket.close();
+            }
+        } catch (IOException e) {
+            System.err.println("Error closing connection for " + clientId + ": " + e.getMessage());
         }
-        details.append("Current Coordinator: ").append(server.getCoordinator().getUsername() + server.getCoordinator().getClientId());
-        requester.sendMessage(details.toString());
     }
 
     public String getClientId() {
         return clientId;
     }
 
-    public String getUsername() {
-        return username;
-    }
-
-    public Socket getClientSocket() {
-        return clientSocket;
-    }
-
-    public boolean isCoordinator() {
-        return isCoordinator;
-    }
-
-    public void setCoordinator(boolean coordinator) {
-        isCoordinator = coordinator;
-        if (coordinator) {
-            startCoordinatorChecks(); // Start periodic checks if this client is the coordinator
-        }
-    }
-
-    public void setActive(boolean active) {
-        isActive = active;
-    }
-
-    private void startCoordinatorChecks() {
-        new Thread(() -> {
-            while (isCoordinator) {
-                try {
-                    Thread.sleep(20000); // Check every 20 seconds
-                    System.out.println("Coordinator checking active members...");
-                    for (ClientHandler client : server.getClients()) {
-                        if (client != this) {
-                            client.sendMessage("ping");
-                            String response = client.in.readLine();
-                            if (response == null || !response.equalsIgnoreCase("pong")) {
-                                System.out.println("Client " + client.getUsername() + client.getClientId() + " is inactive.");
-                                client.setActive(false);
-                                server.removeClient(client);
-                            }
-                        }
-                    }
-                } catch (InterruptedException | IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        }).start();
+    public Socket getSocket() {
+        return socket;
     }
 }
