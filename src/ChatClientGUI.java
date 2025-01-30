@@ -206,6 +206,7 @@ public class ChatClientGUI extends JFrame {
             sendMessage("BROADCAST:" + message);
         } else {
             sendMessage("PRIVATE:" + recipient + ":" + message);
+            chatArea.append("[Private to: " + recipient + "]: " + message + "\n");
         }
         messageField.setText("");
     }
@@ -334,7 +335,7 @@ public class ChatClientGUI extends JFrame {
             chatArea.append(parts[0] + ": " + parts[1] + "\n");
         } else if (message.startsWith("PRIVATE_MSG:")) {
             String[] parts = message.substring(11).split(":", 2);
-            chatArea.append("[Private from " + parts[0] + "]: " + parts[1] + "\n");
+            chatArea.append("[Private from: " + parts[0] + "]: " + parts[1] + "\n");
         } else if (message.startsWith("MEMBER_JOIN:")) {
             chatArea.append("Member joined: " + message.substring(12) + "\n");
         } else if (message.startsWith("MEMBER_LEAVE:")) {
