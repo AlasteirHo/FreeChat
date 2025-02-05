@@ -45,7 +45,7 @@ public class ChatClientGUI extends JFrame {
 
         heartbeatTimer = new Timer(20000, e -> {
             if (isCoordinator && isConnected()) {
-                sendMessage("HEARTBEAT");
+                sendMessage("Ticker");
             }
         });
 
@@ -202,11 +202,12 @@ public class ChatClientGUI extends JFrame {
         String message = messageField.getText().trim();
         if (message.isEmpty()) return;
 
-        if (recipient.equals("Broadcast")) {
+        if (recipient.equals("All Chat")) {
             sendMessage("BROADCAST:" + message);
         } else {
-            sendMessage("PRIVATE:" + recipient + ":" + message);
-        }
+        sendMessage("PRIVATE:" + recipient + ":" + message);
+        chatArea.append("Private to " + recipient + ": " + message + "\n");
+    }
         messageField.setText("");
     }
 
@@ -249,7 +250,8 @@ public class ChatClientGUI extends JFrame {
             out = new PrintWriter(socket.getOutputStream(), true);
             connected = true;
 
-            this.serverIP = socket.getInetAddress().getHostAddress();
+            // Get actual IP instead of localhost
+            this.serverIP = InetAddress.getLocalHost().getHostAddress();
             this.serverPort = port;
             if (serverInfoLabel != null) {
                 serverInfoLabel.setText(String.format("Server: %s:%d", this.serverIP, this.serverPort));
@@ -258,12 +260,7 @@ public class ChatClientGUI extends JFrame {
             memberUpdateTimer.start();
             new Thread(() -> receiveMessages(socket)).start();
         } catch (IOException ex) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Connection error: " + ex.getMessage(),
-                    "Error",
-                    JOptionPane.ERROR_MESSAGE
-            );
+            JOptionPane.showMessageDialog(this, "Connection error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -309,11 +306,23 @@ public class ChatClientGUI extends JFrame {
             heartbeatTimer.stop();
         } else if (message.startsWith("MEMBER_LIST:")) {
             String[] members = message.substring(12).split(",");
+            String selectedRecipient = (String) recipientBox.getSelectedItem();
+
             recipientBox.removeAllItems();
-            recipientBox.addItem("Broadcast");
+            recipientBox.addItem("All Chat");
             for (String member : members) {
                 if (!member.equals(clientId)) {
                     recipientBox.addItem(member);
+                }
+            }
+
+            // Restore previous selection if it still exists
+            if (selectedRecipient != null) {
+                for (int i = 0; i < recipientBox.getItemCount(); i++) {
+                    if (selectedRecipient.equals(recipientBox.getItemAt(i))) {
+                        recipientBox.setSelectedItem(selectedRecipient);
+                        break;
+                    }
                 }
             }
         } else if (message.startsWith("MEMBER_DETAILS:")) {
@@ -334,7 +343,7 @@ public class ChatClientGUI extends JFrame {
             chatArea.append(parts[0] + ": " + parts[1] + "\n");
         } else if (message.startsWith("PRIVATE_MSG:")) {
             String[] parts = message.substring(11).split(":", 2);
-            chatArea.append("[Private from " + parts[0] + "]: " + parts[1] + "\n");
+            chatArea.append("Private from" + parts[0] + " " + parts[1] + "\n");
         } else if (message.startsWith("MEMBER_JOIN:")) {
             chatArea.append("Member joined: " + message.substring(12) + "\n");
         } else if (message.startsWith("MEMBER_LEAVE:")) {
