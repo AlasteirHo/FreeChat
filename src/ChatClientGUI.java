@@ -274,12 +274,12 @@ public class ChatClientGUI extends JFrame {
                 final String msg = message;
                 SwingUtilities.invokeLater(() -> handleMessage(msg));
             }
-        } catch (IOException e) {
+        } catch (IOException ex) {
             if (connected) {
                 SwingUtilities.invokeLater(() -> {
                     JOptionPane.showMessageDialog(
                             this,
-                            "Lost connection to server: " + e.getMessage(),
+                            "Lost connection to server: " + ex.getMessage(),
                             "Connection Error",
                             JOptionPane.ERROR_MESSAGE
                     );

@@ -4,14 +4,14 @@ public class ApplicationLauncher {
     public static void main(String[] args) {
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (Exception ex) {
+            ex.printStackTrace();
         }
 
         Object[] options = {"Host Server", "Join Server"};
         int choice = JOptionPane.showOptionDialog(null,
                 "Choose an option",
-                "Chat System",
+                "Chat application",
                 JOptionPane.DEFAULT_OPTION,
                 JOptionPane.QUESTION_MESSAGE,
                 null,

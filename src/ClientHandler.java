@@ -35,9 +35,9 @@ public class ClientHandler implements Runnable {
                     handleMessage(input);
                 }
             }
-        } catch (IOException e) {
+        } catch (IOException ex) {
             if (running) {
-                System.err.println("Error handling client " + clientId + ": " + e.getMessage());
+                System.err.println("Error handling client " + clientId + ": " + ex.getMessage());
             }
         } finally {
             closeConnection();
@@ -57,8 +57,8 @@ public class ClientHandler implements Runnable {
             } else if (message.equals("REQUEST_DETAILS")) {
                 server.sendMemberDetails(clientId);
             }
-        } catch (Exception e) {
-            System.err.println("Error processing message from " + clientId + ": " + e.getMessage());
+        } catch (Exception ex) {
+            System.err.println("Error processing message from " + clientId + ": " + ex.getMessage());
         }
     }
 
@@ -69,8 +69,8 @@ public class ClientHandler implements Runnable {
             if (out.checkError()) {
                 throw new IOException("Failed to send message");
             }
-        } catch (IOException e) {
-            System.err.println("Error sending message to " + clientId + ": " + e.getMessage());
+        } catch (IOException ex) {
+            System.err.println("Error sending message to " + clientId + ": " + ex.getMessage());
             closeConnection();
         }
     }
@@ -85,13 +85,9 @@ public class ClientHandler implements Runnable {
             if (!socket.isClosed()) {
                 socket.close();
             }
-        } catch (IOException e) {
-            System.err.println("Error closing connection for " + clientId + ": " + e.getMessage());
+        } catch (IOException ex) {
+            System.err.println("Error closing connection for " + clientId + ": " + ex.getMessage());
         }
-    }
-
-    public String getClientId() {
-        return clientId;
     }
 
     public Socket getSocket() {

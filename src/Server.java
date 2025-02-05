@@ -43,8 +43,8 @@ public class Server {
             throw new IOException("Security manager prevented use of port " + port);
         } catch (IllegalArgumentException e) {
             throw new IOException("Invalid port number: " + port);
-        } catch (IOException e) {
-            throw new IOException("Could not start server on port " + port + ": " + e.getMessage());
+        } catch (IOException ex) {
+            throw new IOException("Could not start server on port " + port + ": " + ex.getMessage());
         }
     }
 
@@ -55,9 +55,9 @@ public class Server {
                     Socket clientSocket = serverSocket.accept();
                     ClientHandler handler = new ClientHandler(clientSocket, this);
                     clientThreadPool.execute(handler);
-                } catch (IOException e) {
+                } catch (IOException ex) {
                     if (!serverSocket.isClosed()) {
-                        System.err.println("Accept failed: " + e.getMessage());
+                        System.err.println("Accept failed: " + ex.getMessage());
                     }
                 }
             }
@@ -79,11 +79,11 @@ public class Server {
 
     public synchronized void removeClient(String clientId) {
         clients.remove(clientId);
-        System.out.println("Client removed: " + clientId);
+        System.out.println("Client removed from member list: " + clientId);
         if (clientId.equals(currentCoordinator)) {
             assignNewCoordinator();
         }
-        broadcastMessage("MEMBER_LEAVE:" + clientId);
+        broadcastMessage("Member Left:" + clientId);
         broadcastMemberList();
     }
 
@@ -102,7 +102,13 @@ public class Server {
         } else {
             currentCoordinator = null;
             System.out.println("No clients available for coordinator role");
-            shutdown();
+            if (serverSocket != null && !serverSocket.isClosed()) {
+                try {
+                    serverSocket.close();
+                } catch (IOException ex) {
+                    System.err.println("Error closing server socket: " + ex.getMessage());
+                }
+            }
             System.exit(0);
         }
     }
@@ -123,8 +129,8 @@ public class Server {
         for (ClientHandler client : new ArrayList<>(clients.values())) {
             try {
                 client.sendMessage(message);
-            } catch (Exception e) {
-                System.err.println("Error broadcasting to client: " + e.getMessage());
+            } catch (Exception ex) {
+                System.err.println("Error broadcasting to client: " + ex.getMessage());
             }
         }
     }
@@ -178,8 +184,8 @@ public class Server {
             for (ClientHandler client : new ArrayList<>(clients.values())) {
                 try {
                     client.closeConnection();
-                } catch (Exception e) {
-                    System.err.println("Error closing client connection: " + e.getMessage());
+                } catch (Exception ex) {
+                    System.err.println("Error closing client connection: " + ex.getMessage());
                 }
             }
             clients.clear();
@@ -192,8 +198,8 @@ public class Server {
                 serverSocket.close();
             }
             System.out.println("Server shutdown complete");
-        } catch (IOException e) {
-            System.err.println("Error during server shutdown: " + e.getMessage());
+        } catch (IOException ex) {
+            System.err.println("Error during server shutdown: " + ex.getMessage());
         }
     }
 

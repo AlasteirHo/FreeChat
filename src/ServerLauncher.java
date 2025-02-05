@@ -9,8 +9,8 @@ public class ServerLauncher {
             server = new Server(port);
             isRunning = true;
             System.out.println("Server successfully started on port " + port);
-        } catch (IOException e) {
-            String errorMessage = e.getMessage();
+        } catch (IOException ex) {
+            String errorMessage = ex.getMessage();
             System.err.println("Server startup error: " + errorMessage);
             throw new RuntimeException(errorMessage);
         }
@@ -62,8 +62,8 @@ public class ServerLauncher {
         } catch (NumberFormatException e) {
             System.err.println("Invalid port number format");
             System.exit(1);
-        } catch (Exception e) {
-            System.err.println("Server error: " + e.getMessage());
+        } catch (Exception ex) {
+            System.err.println("Server error: " + ex.getMessage());
             System.exit(1);
         }
     }
