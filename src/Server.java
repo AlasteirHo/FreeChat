@@ -11,6 +11,7 @@ public class Server {
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
     private volatile boolean running = true;
     private final ExecutorService clientThreadPool = Executors.newCachedThreadPool();
+    private Timer emptyServerTimer;
 
     public Server(int port) throws IOException {
         if (port < 1024 || port > 65535) {
@@ -21,6 +22,19 @@ public class Server {
             serverSocket = new ServerSocket();
             serverSocket.setReuseAddress(true);
             serverSocket.bind(new InetSocketAddress(port));
+
+            emptyServerTimer = new Timer();
+            emptyServerTimer.scheduleAtFixedRate(new TimerTask() {
+                @Override
+                public void run() {
+                    if (clients.isEmpty()) {
+                        shutdown();
+                        emptyServerTimer.cancel();
+                        System.exit(0);
+                    }
+                }
+            }, 20000, 20000); // Check every 20 seconds
+
             System.out.println("Server successfully started on port " + port);
             startAcceptingClients();
         } catch (BindException e) {
@@ -53,18 +67,16 @@ public class Server {
 
     public synchronized void registerClient(String clientId, ClientHandler handler) {
         clients.put(clientId, handler);
-        // Send coordinator info only once during registration
         if (currentCoordinator == null) {
             setNewCoordinator(clientId);
         } else if (!clientId.equals(currentCoordinator)) {
             handler.sendMessage("COORDINATOR_INFO:" + currentCoordinator);
         }
-        // Separate member join broadcast
         broadcastMessage("MEMBER_JOIN:" + clientId);
-        // Only send member list without coordinator info
         String memberList = getMemberList();
         broadcastMessage("MEMBER_LIST:" + memberList);
     }
+
     public synchronized void removeClient(String clientId) {
         clients.remove(clientId);
         System.out.println("Client removed: " + clientId);
@@ -90,6 +102,8 @@ public class Server {
         } else {
             currentCoordinator = null;
             System.out.println("No clients available for coordinator role");
+            shutdown();
+            System.exit(0);
         }
     }
 
@@ -136,14 +150,16 @@ public class Server {
             }
             ClientHandler handler = entry.getValue();
             Socket socket = handler.getSocket();
-            details.append(String.format("%s:%s:%d",
-                    entry.getKey(),
+            String memberName = entry.getKey();
+            details.append(String.format("%s%s:%s:%d",
+                    memberName,
+                    memberName.equals(currentCoordinator) ? " (Coordinator)" : "",
                     socket.getInetAddress().getHostAddress(),
                     socket.getPort()));
             first = false;
         }
         ClientHandler requester = clients.get(requestingClient);
-        if (requester != null && details.length() > 0) {
+        if (requester != null && !details.isEmpty()) {
             requester.sendMessage("MEMBER_DETAILS:" + details.toString());
         }
     }
@@ -169,6 +185,9 @@ public class Server {
             clients.clear();
             clientThreadPool.shutdownNow();
             scheduler.shutdownNow();
+            if (emptyServerTimer != null) {
+                emptyServerTimer.cancel();
+            }
             if (!serverSocket.isClosed()) {
                 serverSocket.close();
             }
