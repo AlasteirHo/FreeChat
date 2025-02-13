@@ -65,8 +65,13 @@ public class ChatClientGUI extends JFrame {
         JTextField usernameField = new JTextField(20);
         JTextField serverIpField = new JTextField("localhost", 20);
         JTextField portField = new JTextField("5000", 20);
-        JButton connectButton = new JButton("Connect");
 
+        // Create buttons panel for Connect and Cancel
+        JPanel buttonPanel = new JPanel(new GridLayout(1, 2, 5, 0));
+        JButton connectButton = new JButton("Connect");
+        JButton cancelButton = new JButton("Cancel");
+
+        // Add components with GridBagLayout
         gbc.gridx = 0; gbc.gridy = 0;
         loginPanel.add(new JLabel("Username:"), gbc);
         gbc.gridx = 1;
@@ -82,10 +87,16 @@ public class ChatClientGUI extends JFrame {
         gbc.gridx = 1;
         loginPanel.add(portField, gbc);
 
+        // Add buttons to the button panel
+        buttonPanel.add(connectButton);
+        buttonPanel.add(cancelButton);
+
+        // Add button panel to login panel
         gbc.gridx = 0; gbc.gridy = 3;
         gbc.gridwidth = 2;
-        loginPanel.add(connectButton, gbc);
+        loginPanel.add(buttonPanel, gbc);
 
+        // Connect button action
         connectButton.addActionListener(e -> {
             try {
                 String username = usernameField.getText().trim();
@@ -116,6 +127,16 @@ public class ChatClientGUI extends JFrame {
                 );
             }
         });
+
+        // Cancel button action
+        cancelButton.addActionListener(e -> {
+            dispose(); // Close current window
+            // Show the main application dialog again
+            SwingUtilities.invokeLater(() -> {
+                ApplicationLauncher.showMainDialog();
+            });
+        });
+
         return loginPanel;
     }
 
@@ -205,9 +226,9 @@ public class ChatClientGUI extends JFrame {
         if (recipient.equals("All Chat")) {
             sendMessage("BROADCAST:" + message);
         } else {
-        sendMessage("PRIVATE:" + recipient + ":" + message);
-        chatArea.append("Private to " + recipient + ": " + message + "\n");
-    }
+            sendMessage("PRIVATE:" + recipient + ":" + message);
+            chatArea.append("Private to " + recipient + ": " + message + "\n");
+        }
         messageField.setText("");
     }
 
@@ -343,7 +364,7 @@ public class ChatClientGUI extends JFrame {
             chatArea.append(parts[0] + ": " + parts[1] + "\n");
         } else if (message.startsWith("PRIVATE_MSG:")) {
             String[] parts = message.substring(11).split(":", 2);
-            chatArea.append("Private from" + parts[0] + " " + parts[1] + "\n");
+            chatArea.append("Private from " + parts[0] + ": " + parts[1] + "\n");
         } else if (message.startsWith("MEMBER_JOIN:")) {
             chatArea.append("Member joined: " + message.substring(12) + "\n");
         } else if (message.startsWith("MEMBER_LEAVE:")) {
