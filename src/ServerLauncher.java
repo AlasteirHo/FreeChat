@@ -37,8 +37,8 @@ public class ServerLauncher {
             int port = Integer.parseInt(args[0]);
 
             // Check port range
-            if (port < 1024 || port > 65535) {
-                System.err.println("Port must be between 1024 and 65535");
+            if (port < 5000 || port > 65535) {
+                System.err.println("Port must be between 5000 and 65535");
                 System.exit(1);
             }
 
