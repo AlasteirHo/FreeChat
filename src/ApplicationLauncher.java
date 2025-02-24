@@ -1,4 +1,6 @@
 import javax.swing.*;
+import java.io.IOException;
+import java.net.ServerSocket;
 
 public class ApplicationLauncher {
     public static void main(String[] args) {
@@ -23,7 +25,7 @@ public class ApplicationLauncher {
                 options[0]);
 
         if (choice == 0) { // Host Server
-            showHostServerDialog();
+            hostServerWithAutomaticPort();
         } else if (choice == 1) { // Join Server
             SwingUtilities.invokeLater(() -> {
                 ChatClientGUI client = new ChatClientGUI();
@@ -33,32 +35,18 @@ public class ApplicationLauncher {
         }
     }
 
-    private static void showHostServerDialog() {
-        String portStr = JOptionPane.showInputDialog(
-                null,
-                "Enter port number for the server (1024-65535):",
-                "Server Port",
-                JOptionPane.QUESTION_MESSAGE
-        );
-
-        if (portStr == null || portStr.trim().isEmpty()) {
-            // If Cancel is clicked or input is empty, go back to main dialog
-            showMainDialog();
-            return;
-        }
-
+    private static void hostServerWithAutomaticPort() {
         try {
-            int port = Integer.parseInt(portStr);
-            if (port < 1024 || port > 65535) {
-                JOptionPane.showMessageDialog(
-                        null,
-                        "Port must be between 1024 and 65535",
-                        "Invalid Port",
-                        JOptionPane.ERROR_MESSAGE
-                );
-                showHostServerDialog(); // Show port dialog again
-                return;
-            }
+            // Find an available port automatically
+            int port = findAvailablePort();
+
+            // Display the auto assigned port
+            JOptionPane.showMessageDialog(
+                    null,
+                    "Server will start on port: " + port,
+                    "Automatic Port Assignment",
+                    JOptionPane.INFORMATION_MESSAGE
+            );
 
             String javaHome = System.getProperty("java.home");
             String javaBin = javaHome + "/bin/java";
@@ -83,14 +71,6 @@ public class ApplicationLauncher {
                 client.setVisible(true);
             });
 
-        } catch (NumberFormatException ie) {
-            JOptionPane.showMessageDialog(
-                    null,
-                    "Please enter a valid port number",
-                    "Error",
-                    JOptionPane.ERROR_MESSAGE
-            );
-            showHostServerDialog(); // Show port dialog again
         } catch (Exception ie) {
             JOptionPane.showMessageDialog(
                     null,
@@ -98,7 +78,24 @@ public class ApplicationLauncher {
                     "Error",
                     JOptionPane.ERROR_MESSAGE
             );
-            showMainDialog(); // Go back to main dialog on error
+            showMainDialog();
         }
+    }
+
+    private static int findAvailablePort() {
+        // Starts the program with a valid port, starting from 5000.....
+        int startPort = 5000;
+        int maxPort = 65535;
+
+        for (int port = startPort; port <= maxPort; port++) {
+            try (ServerSocket serverSocket = new ServerSocket(port)) {
+                // If we get here, the port is available
+                return port;
+            } catch (IOException e) {
+                // Port is not available, try the next one
+                continue;
+            }
+        }
+        return -1;
     }
 }
