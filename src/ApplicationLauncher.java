@@ -88,7 +88,7 @@ public class ApplicationLauncher {
         int maxPort = 65535;
 
         for (int port = startPort; port <= maxPort; port++) {
-            try (ServerSocket serverSocket = new ServerSocket(port)) {
+            try (ServerSocket _ = new ServerSocket(port)) {
                 // If we get here, the port is available
                 return port;
             } catch (IOException e) {

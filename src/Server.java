@@ -4,14 +4,12 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public class Server {
-    private static final int DEFAULT_PORT = 5000;
     private final ServerSocket serverSocket;
     private final Map<String, ClientHandler> clients = new ConcurrentHashMap<>();
     private String currentCoordinator = null;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-    private volatile boolean running = true;
     private final ExecutorService clientThreadPool = Executors.newCachedThreadPool();
-    private Timer emptyServerTimer;
+    private final Timer emptyServerTimer;
 
     public Server(int port) throws IOException {
         if (port < 1024 || port > 65535) {
@@ -174,13 +172,8 @@ public class Server {
         return String.join(",", clients.keySet());
     }
 
-    public String getCurrentCoordinator() {
-        return currentCoordinator;
-    }
-
     public void shutdown() {
         try {
-            running = false;
             for (ClientHandler client : new ArrayList<>(clients.values())) {
                 try {
                     client.closeConnection();
