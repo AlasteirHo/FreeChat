@@ -6,26 +6,53 @@ import java.net.*;
 import java.util.Random;
 
 public class ChatClientGUI extends JFrame {
+    // Main panels
+    private JPanel mainPanel;
+    private JPanel loginPanel;
+    private JPanel chatPanel;
+
+    // Login panel components
+    private JTextField usernameField;
+    private JTextField serverIpField;
+    private JTextField portField;
+    private JButton connectButton;
+    private JButton cancelButton;
+
+    // Chat panel components
+    private JPanel statusPanel;
+    private JPanel coordinatorPanel;
+    private JPanel serverInfoPanel;
+    private JLabel statusLabel;
+    private JLabel serverInfoLabel;
+    private JTextArea chatArea;
+    private JPanel bottomPanel;
+    private JComboBox<String> recipientBox;
+    private JTextField messageField;
+    private JButton sendButton;
+    private JButton getMembersButton;
+    private JButton quitButton;
+
+    // Connection variables
     private PrintWriter out;
     private String clientId;
     private boolean isCoordinator = false;
-    private JTextArea chatArea;
-    private JTextField messageField;
-    private JComboBox<String> recipientBox;
-    private JPanel cardLayout;
-    private CardLayout cards;
-    private JLabel statusLabel;
-    private Timer heartbeatTimer;
+    private Timer Ticker;
     private Timer memberUpdateTimer;
     private Socket socket;
     private volatile boolean connected = false;
     private String serverIP;
     private int serverPort;
-    private JLabel serverInfoLabel;
 
     public ChatClientGUI() {
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
         setTitle("Chat System");
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        setContentPane(mainPanel);
         setSize(600, 800);
         setLocationRelativeTo(null);
 
@@ -36,14 +63,14 @@ public class ChatClientGUI extends JFrame {
             }
         });
 
-        cards = new CardLayout();
-        cardLayout = new JPanel(cards);
-        add(cardLayout);
-        cardLayout.add(createLoginPanel(), "login");
-        cardLayout.add(createChatPanel(), "chat");
-        cards.show(cardLayout, "login");
+        // Set up login panel actions
+        setupLoginPanel();
 
-        heartbeatTimer = new Timer(20000, e -> {
+        // Set up chat panel actions
+        setupChatPanel();
+
+        // Initialize timers
+        Ticker = new Timer(20000, e -> {
             if (isCoordinator && isConnected()) {
                 sendMessage("Ticker");
             }
@@ -56,47 +83,7 @@ public class ChatClientGUI extends JFrame {
         });
     }
 
-    private JPanel createLoginPanel() {
-        JPanel loginPanel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5, 5, 5, 5);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-
-        JTextField usernameField = new JTextField(20);
-        JTextField serverIpField = new JTextField("localhost", 20);
-        JTextField portField = new JTextField("5000", 20);
-
-        // Create buttons panel for Connect and Cancel
-        JPanel buttonPanel = new JPanel(new GridLayout(1, 2, 5, 0));
-        JButton connectButton = new JButton("Connect");
-        JButton cancelButton = new JButton("Cancel");
-
-        // Add components with GridBagLayout
-        gbc.gridx = 0; gbc.gridy = 0;
-        loginPanel.add(new JLabel("Username:"), gbc);
-        gbc.gridx = 1;
-        loginPanel.add(usernameField, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 1;
-        loginPanel.add(new JLabel("Server IP:"), gbc);
-        gbc.gridx = 1;
-        loginPanel.add(serverIpField, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 2;
-        loginPanel.add(new JLabel("Port:"), gbc);
-        gbc.gridx = 1;
-        loginPanel.add(portField, gbc);
-
-        // Add buttons to the button panel
-        buttonPanel.add(connectButton);
-        buttonPanel.add(cancelButton);
-
-        // Add button panel to login panel
-        gbc.gridx = 0; gbc.gridy = 3;
-        gbc.gridwidth = 2;
-        loginPanel.add(buttonPanel, gbc);
-
-        // Connect button action
+    private void setupLoginPanel() {
         connectButton.addActionListener(e -> {
             try {
                 String username = usernameField.getText().trim();
@@ -115,7 +102,8 @@ public class ChatClientGUI extends JFrame {
 
                 if (isConnected()) {
                     sendMessage("CONNECT:" + clientId);
-                    cards.show(cardLayout, "chat");
+                    CardLayout cl = (CardLayout) mainPanel.getLayout();
+                    cl.show(mainPanel, "chat");
                     setTitle("Chat Client - " + clientId);
                 }
             } catch (NumberFormatException ex) {
@@ -128,7 +116,6 @@ public class ChatClientGUI extends JFrame {
             }
         });
 
-        // Cancel button action
         cancelButton.addActionListener(e -> {
             dispose(); // Close current window
             // Show the main application dialog again
@@ -136,85 +123,20 @@ public class ChatClientGUI extends JFrame {
                 ApplicationLauncher.showMainDialog();
             });
         });
-
-        return loginPanel;
     }
 
-    private JPanel createChatPanel() {
-        JPanel chatPanel = new JPanel(new BorderLayout());
-
-        // Status Panel
-        JPanel statusPanel = new JPanel(new GridLayout(2, 1));
-        JPanel coordinatorPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        statusLabel = new JLabel("Status: Member");
-        statusLabel.setForeground(Color.BLUE);
-        coordinatorPanel.add(statusLabel);
-
-        JPanel serverInfoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        serverInfoLabel = new JLabel("Server: Connecting...");
-        serverInfoPanel.add(serverInfoLabel);
-
-        statusPanel.add(coordinatorPanel);
-        statusPanel.add(serverInfoPanel);
-        chatPanel.add(statusPanel, BorderLayout.NORTH);
-
-        // Chat area
-        chatArea = new JTextArea();
-        chatArea.setEditable(false);
-        chatArea.setLineWrap(true);
-        chatArea.setWrapStyleWord(true);
-        JScrollPane scrollPane = new JScrollPane(chatArea);
-        chatPanel.add(scrollPane, BorderLayout.CENTER);
-
-        // Bottom panel
-        JPanel bottomPanel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5, 5, 5, 5);
-
-        recipientBox = new JComboBox<>(new String[]{"All Channel"});
-        recipientBox.setPreferredSize(new Dimension(150, 25));
-        messageField = new JTextField();
-        messageField.setPreferredSize(new Dimension(300, 25));
-        JButton sendButton = new JButton("Send");
-        JButton getMembersButton = new JButton("Request Details");
-        JButton quitButton = new JButton("Quit");
-
-        gbc.gridx = 0; gbc.gridy = 0;
-        gbc.gridwidth = 1;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        bottomPanel.add(recipientBox, gbc);
-
-        gbc.gridx = 1;
-        gbc.gridwidth = 2;
-        gbc.weightx = 1.0;
-        bottomPanel.add(messageField, gbc);
-
-        gbc.gridx = 3;
-        gbc.gridwidth = 1;
-        gbc.weightx = 0;
-        bottomPanel.add(sendButton, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 1;
-        gbc.gridwidth = 1;
-        bottomPanel.add(getMembersButton, gbc);
-
-        gbc.gridx = 2;
-        bottomPanel.add(quitButton, gbc);
-
-        chatPanel.add(bottomPanel, BorderLayout.SOUTH);
-
-        // Button actions
+    private void setupChatPanel() {
         sendButton.addActionListener(e -> sendChatMessage());
         messageField.addActionListener(e -> sendChatMessage());
+
         getMembersButton.addActionListener(e -> {
             if (isConnected()) {
                 sendMessage("REQUEST_DETAILS");
                 chatArea.append("\n----- Member Details -----\n");
             }
         });
-        quitButton.addActionListener(e -> handleClosing());
 
-        return chatPanel;
+        quitButton.addActionListener(e -> handleClosing());
     }
 
     private void sendChatMessage() {
@@ -247,11 +169,8 @@ public class ChatClientGUI extends JFrame {
 
     private void cleanup() {
         connected = false;
-        if (out != null) {
-            sendMessage("QUIT");
-        }
-        if (heartbeatTimer != null) {
-            heartbeatTimer.stop();
+        if (Ticker != null) {
+            Ticker.stop();
         }
         if (memberUpdateTimer != null) {
             memberUpdateTimer.stop();
@@ -305,7 +224,8 @@ public class ChatClientGUI extends JFrame {
                             JOptionPane.ERROR_MESSAGE
                     );
                     cleanup();
-                    cards.show(cardLayout, "login");
+                    CardLayout cl = (CardLayout) mainPanel.getLayout();
+                    cl.show(mainPanel, "login");
                 });
             }
         }
@@ -317,14 +237,14 @@ public class ChatClientGUI extends JFrame {
             statusLabel.setText("Status: Coordinator");
             statusLabel.setForeground(Color.RED);
             chatArea.append("You are now the coordinator\n");
-            heartbeatTimer.start();
+            Ticker.start();
         } else if (message.startsWith("COORDINATOR_INFO:")) {
             isCoordinator = false;
             String coordinatorId = message.substring(16);
             statusLabel.setText("Status: Member");
             statusLabel.setForeground(Color.BLUE);
             chatArea.append("Current coordinator is: " + coordinatorId + "\n");
-            heartbeatTimer.stop();
+            Ticker.stop();
         } else if (message.startsWith("MEMBER_LIST:")) {
             String[] members = message.substring(12).split(",");
             String selectedRecipient = (String) recipientBox.getSelectedItem();
@@ -383,16 +303,16 @@ public class ChatClientGUI extends JFrame {
         return connected && socket != null && !socket.isClosed();
     }
 
+    /**
+     * Shows the login panel by setting the card layout to show the "login" card.
+     * This method is called from ApplicationLauncher when starting the client.
+     */
     public void showLoginPanel() {
-        cards.show(cardLayout, "login");
+        CardLayout cl = (CardLayout) mainPanel.getLayout();
+        cl.show(mainPanel, "login");
     }
 
     public static void main(String[] args) {
-        try {
-            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
         SwingUtilities.invokeLater(() -> {
             new ChatClientGUI().setVisible(true);
         });

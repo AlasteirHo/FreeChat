@@ -4,20 +4,14 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public class Server {
-    private static final int DEFAULT_PORT = 5000;
     private final ServerSocket serverSocket;
     private final Map<String, ClientHandler> clients = new ConcurrentHashMap<>();
     private String currentCoordinator = null;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-    private volatile boolean running = true;
     private final ExecutorService clientThreadPool = Executors.newCachedThreadPool();
-    private Timer emptyServerTimer;
+    private final Timer emptyServerTimer;
 
     public Server(int port) throws IOException {
-        if (port < 1024 || port > 65535) {
-            throw new IllegalArgumentException("Port must be between 1024 and 65535");
-        }
-
         try {
             serverSocket = new ServerSocket();
             serverSocket.setReuseAddress(true);
@@ -72,7 +66,7 @@ public class Server {
         } else if (!clientId.equals(currentCoordinator)) {
             handler.sendMessage("COORDINATOR_INFO:" + currentCoordinator);
         }
-        broadcastMessage("MEMBER_JOIN:" + clientId);
+        broadcastMessage("Member Joined:" + clientId);
         String memberList = getMemberList();
         broadcastMessage("MEMBER_LIST:" + memberList);
     }
@@ -125,7 +119,7 @@ public class Server {
     }
 
     public void broadcastMessage(String message) {
-        System.out.println("Broadcasting: " + message);
+        System.out.println(message);
         for (ClientHandler client : new ArrayList<>(clients.values())) {
             try {
                 client.sendMessage(message);
@@ -174,13 +168,8 @@ public class Server {
         return String.join(",", clients.keySet());
     }
 
-    public String getCurrentCoordinator() {
-        return currentCoordinator;
-    }
-
     public void shutdown() {
         try {
-            running = false;
             for (ClientHandler client : new ArrayList<>(clients.values())) {
                 try {
                     client.closeConnection();

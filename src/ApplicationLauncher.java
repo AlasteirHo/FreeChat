@@ -1,48 +1,66 @@
 import javax.swing.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.io.IOException;
 import java.net.ServerSocket;
 
-public class ApplicationLauncher {
-    public static void main(String[] args) {
+public class ApplicationLauncher extends JFrame {
+    private JButton hostServerButton;
+    private JButton joinServerButton;
+    private JPanel mainPanel;
+
+    public ApplicationLauncher() {
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception ei) {
             ei.printStackTrace();
         }
 
-        showMainDialog();
+        setTitle("Chat application");
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setContentPane(mainPanel);
+        pack();
+        setLocationRelativeTo(null);
+
+        hostServerButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                hostServerWithAutomaticPort();
+            }
+        });
+
+        joinServerButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                dispose();
+                SwingUtilities.invokeLater(() -> {
+                    ChatClientGUI client = new ChatClientGUI();
+                    client.showLoginPanel();
+                    client.setVisible(true);
+                });
+            }
+        });
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> {
+            showMainDialog();
+        });
     }
 
     public static void showMainDialog() {
-        Object[] options = {"Host Server", "Join Server"};
-        int choice = JOptionPane.showOptionDialog(null,
-                "Choose an option",
-                "Chat application",
-                JOptionPane.DEFAULT_OPTION,
-                JOptionPane.QUESTION_MESSAGE,
-                null,
-                options,
-                options[0]);
-
-        if (choice == 0) { // Host Server
-            hostServerWithAutomaticPort();
-        } else if (choice == 1) { // Join Server
-            SwingUtilities.invokeLater(() -> {
-                ChatClientGUI client = new ChatClientGUI();
-                client.showLoginPanel();
-                client.setVisible(true);
-            });
-        }
+        ApplicationLauncher dialog = new ApplicationLauncher();
+        dialog.setVisible(true);
     }
 
-    private static void hostServerWithAutomaticPort() {
+    private void hostServerWithAutomaticPort() {
         try {
             // Find an available port automatically
             int port = findAvailablePort();
 
             // Display the auto assigned port
             JOptionPane.showMessageDialog(
-                    null,
+                    this,
                     "Server will start on port: " + port,
                     "Automatic Port Assignment",
                     JOptionPane.INFORMATION_MESSAGE
@@ -65,6 +83,7 @@ public class ApplicationLauncher {
             builder.start();
 
             Thread.sleep(1000);
+            dispose();
             SwingUtilities.invokeLater(() -> {
                 ChatClientGUI client = new ChatClientGUI();
                 client.showLoginPanel();
@@ -73,12 +92,11 @@ public class ApplicationLauncher {
 
         } catch (Exception ie) {
             JOptionPane.showMessageDialog(
-                    null,
+                    this,
                     "Error starting server: " + ie.getMessage(),
                     "Error",
                     JOptionPane.ERROR_MESSAGE
             );
-            showMainDialog();
         }
     }
 
@@ -88,7 +106,7 @@ public class ApplicationLauncher {
         int maxPort = 65535;
 
         for (int port = startPort; port <= maxPort; port++) {
-            try (ServerSocket serverSocket = new ServerSocket(port)) {
+            try (ServerSocket _ = new ServerSocket(port)) {
                 // If we get here, the port is available
                 return port;
             } catch (IOException e) {
