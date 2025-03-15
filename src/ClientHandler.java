@@ -56,6 +56,26 @@ public class ClientHandler implements Runnable {
                 sendMessage("MEMBER_LIST:" + server.getMemberList());
             } else if (message.equals("REQUEST_DETAILS")) {
                 server.sendMemberDetails(clientId);
+            } else if (message.equals("SERVER_SHUTDOWN")) {
+                // Check if this client is the coordinator before allowing shutdown
+                if (server.isClientCoordinator(clientId)) {
+                    System.out.println("Server shutdown requested by coordinator: " + clientId);
+                    // Notify all clients that server is shutting down
+                    server.broadcastMessage("SERVER_SHUTTING_DOWN");
+                    // Use a separate thread to avoid deadlock during shutdown
+                    new Thread(() -> {
+                        try {
+                            // Give clients a moment to receive the shutdown message
+                            Thread.sleep(500);
+                        } catch (InterruptedException e) {
+                            // Ignore
+                        }
+                        server.shutdown();
+                        System.exit(0);
+                    }).start();
+                } else {
+                    System.out.println("Unauthorized server shutdown attempt by: " + clientId);
+                }
             }
         } catch (Exception ex) {
             System.err.println("Error processing message from " + clientId + ": " + ex.getMessage());
