@@ -4,29 +4,63 @@ import java.awt.event.*;
 import java.io.*;
 import java.net.*;
 import java.util.Random;
+import javax.swing.border.EmptyBorder;
 
 public class ChatClientGUI extends JFrame {
+    // Main panels
+    private JPanel mainPanel;
+    private JPanel loginPanel;
+    private JPanel chatPanel;
+
+    // Login panel components
+    private JTextField usernameField;
+    private JTextField serverIpField;
+    private JTextField portField;
+    private JButton connectButton;
+    private JButton cancelButton;
+
+    // Chat panel components
+    private JPanel statusPanel;
+    private JPanel coordinatorPanel;
+    private JPanel serverInfoPanel;
+    private JLabel statusLabel;
+    private JLabel serverInfoLabel;
+    private JLabel serverTimeoutLabel; // Label for server timeout
+    private JTextArea chatArea;
+    private JPanel bottomPanel;
+    private JComboBox<String> recipientBox;
+    private JTextField messageField;
+    private JButton sendButton;
+    private JButton getMembersButton;
+    private JButton quitButton;
+
+    // Connection variables
     private PrintWriter out;
     private String clientId;
     private boolean isCoordinator = false;
-    private JTextArea chatArea;
-    private JTextField messageField;
-    private JComboBox<String> recipientBox;
-    private JPanel cardLayout;
-    private CardLayout cards;
-    private JLabel statusLabel;
-    private Timer heartbeatTimer;
+    private Timer tickerTimer;
     private Timer memberUpdateTimer;
     private Socket socket;
     private volatile boolean connected = false;
     private String serverIP;
     private int serverPort;
-    private JLabel serverInfoLabel;
+
+    // Server process (only set when this client is hosting the server)
+    private Process serverProcess = null;
 
     public ChatClientGUI() {
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
         setTitle("Chat System");
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        setSize(600, 800);
+        setContentPane(mainPanel);
+
+        // Initially smaller size for login screen
+        setSize(400, 500);
         setLocationRelativeTo(null);
 
         addWindowListener(new WindowAdapter() {
@@ -36,14 +70,38 @@ public class ChatClientGUI extends JFrame {
             }
         });
 
-        cards = new CardLayout();
-        cardLayout = new JPanel(cards);
-        add(cardLayout);
-        cardLayout.add(createLoginPanel(), "login");
-        cardLayout.add(createChatPanel(), "chat");
-        cards.show(cardLayout, "login");
+        // Apply border to chat scroll pane programmatically to avoid form loading errors
+        JScrollPane scrollPane = null;
+        for (Component comp : chatPanel.getComponents()) {
+            if (comp instanceof JScrollPane) {
+                scrollPane = (JScrollPane) comp;
+                break;
+            }
+        }
 
-        heartbeatTimer = new Timer(20000, e -> {
+        if (scrollPane != null) {
+            scrollPane.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
+        }
+
+        // Add server timeout label
+        serverTimeoutLabel = new JLabel();
+        serverTimeoutLabel.setForeground(Color.RED);
+        serverTimeoutLabel.setVisible(false);
+        serverTimeoutLabel.setBorder(new EmptyBorder(0, 5, 0, 0));
+
+        // Add it to the serverInfoPanel (assuming this panel exists in your form)
+        if (serverInfoPanel != null) {
+            serverInfoPanel.add(serverTimeoutLabel);
+        }
+
+        // Set up login panel actions
+        setupLoginPanel();
+
+        // Set up chat panel actions
+        setupChatPanel();
+
+        // Initialize timers
+        tickerTimer = new Timer(20000, e -> {
             if (isCoordinator && isConnected()) {
                 sendMessage("Ticker");
             }
@@ -56,47 +114,7 @@ public class ChatClientGUI extends JFrame {
         });
     }
 
-    private JPanel createLoginPanel() {
-        JPanel loginPanel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5, 5, 5, 5);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-
-        JTextField usernameField = new JTextField(20);
-        JTextField serverIpField = new JTextField("localhost", 20);
-        JTextField portField = new JTextField("5000", 20);
-
-        // Create buttons panel for Connect and Cancel
-        JPanel buttonPanel = new JPanel(new GridLayout(1, 2, 5, 0));
-        JButton connectButton = new JButton("Connect");
-        JButton cancelButton = new JButton("Cancel");
-
-        // Add components with GridBagLayout
-        gbc.gridx = 0; gbc.gridy = 0;
-        loginPanel.add(new JLabel("Username:"), gbc);
-        gbc.gridx = 1;
-        loginPanel.add(usernameField, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 1;
-        loginPanel.add(new JLabel("Server IP:"), gbc);
-        gbc.gridx = 1;
-        loginPanel.add(serverIpField, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 2;
-        loginPanel.add(new JLabel("Port:"), gbc);
-        gbc.gridx = 1;
-        loginPanel.add(portField, gbc);
-
-        // Add buttons to the button panel
-        buttonPanel.add(connectButton);
-        buttonPanel.add(cancelButton);
-
-        // Add button panel to login panel
-        gbc.gridx = 0; gbc.gridy = 3;
-        gbc.gridwidth = 2;
-        loginPanel.add(buttonPanel, gbc);
-
-        // Connect button action
+    private void setupLoginPanel() {
         connectButton.addActionListener(e -> {
             try {
                 String username = usernameField.getText().trim();
@@ -115,8 +133,13 @@ public class ChatClientGUI extends JFrame {
 
                 if (isConnected()) {
                     sendMessage("CONNECT:" + clientId);
-                    cards.show(cardLayout, "chat");
+                    CardLayout cl = (CardLayout) mainPanel.getLayout();
+                    cl.show(mainPanel, "chat");
                     setTitle("Chat Client - " + clientId);
+
+                    // Resize window to larger size for chat panel
+                    setSize(600, 650);
+                    setLocationRelativeTo(null); // Re-center with new size
                 }
             } catch (NumberFormatException ex) {
                 JOptionPane.showMessageDialog(
@@ -128,7 +151,6 @@ public class ChatClientGUI extends JFrame {
             }
         });
 
-        // Cancel button action
         cancelButton.addActionListener(e -> {
             dispose(); // Close current window
             // Show the main application dialog again
@@ -136,89 +158,36 @@ public class ChatClientGUI extends JFrame {
                 ApplicationLauncher.showMainDialog();
             });
         });
-
-        return loginPanel;
     }
 
-    private JPanel createChatPanel() {
-        JPanel chatPanel = new JPanel(new BorderLayout());
+    private void setupChatPanel() {
+        if (sendButton != null) {
+            sendButton.addActionListener(e -> sendChatMessage());
+        }
 
-        // Status Panel
-        JPanel statusPanel = new JPanel(new GridLayout(2, 1));
-        JPanel coordinatorPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        statusLabel = new JLabel("Status: Member");
-        statusLabel.setForeground(Color.BLUE);
-        coordinatorPanel.add(statusLabel);
+        if (messageField != null) {
+            messageField.addActionListener(e -> sendChatMessage());
+        }
 
-        JPanel serverInfoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        serverInfoLabel = new JLabel("Server: Connecting...");
-        serverInfoPanel.add(serverInfoLabel);
+        if (getMembersButton != null) {
+            getMembersButton.addActionListener(e -> {
+                if (isConnected() && chatArea != null) {
+                    sendMessage("REQUEST_DETAILS");
+                    chatArea.append("\n----- Member Details -----\n");
+                }
+            });
+        }
 
-        statusPanel.add(coordinatorPanel);
-        statusPanel.add(serverInfoPanel);
-        chatPanel.add(statusPanel, BorderLayout.NORTH);
-
-        // Chat area
-        chatArea = new JTextArea();
-        chatArea.setEditable(false);
-        chatArea.setLineWrap(true);
-        chatArea.setWrapStyleWord(true);
-        JScrollPane scrollPane = new JScrollPane(chatArea);
-        chatPanel.add(scrollPane, BorderLayout.CENTER);
-
-        // Bottom panel
-        JPanel bottomPanel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5, 5, 5, 5);
-
-        recipientBox = new JComboBox<>(new String[]{"All Channel"});
-        recipientBox.setPreferredSize(new Dimension(150, 25));
-        messageField = new JTextField();
-        messageField.setPreferredSize(new Dimension(300, 25));
-        JButton sendButton = new JButton("Send");
-        JButton getMembersButton = new JButton("Request Details");
-        JButton quitButton = new JButton("Quit");
-
-        gbc.gridx = 0; gbc.gridy = 0;
-        gbc.gridwidth = 1;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        bottomPanel.add(recipientBox, gbc);
-
-        gbc.gridx = 1;
-        gbc.gridwidth = 2;
-        gbc.weightx = 1.0;
-        bottomPanel.add(messageField, gbc);
-
-        gbc.gridx = 3;
-        gbc.gridwidth = 1;
-        gbc.weightx = 0;
-        bottomPanel.add(sendButton, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 1;
-        gbc.gridwidth = 1;
-        bottomPanel.add(getMembersButton, gbc);
-
-        gbc.gridx = 2;
-        bottomPanel.add(quitButton, gbc);
-
-        chatPanel.add(bottomPanel, BorderLayout.SOUTH);
-
-        // Button actions
-        sendButton.addActionListener(e -> sendChatMessage());
-        messageField.addActionListener(e -> sendChatMessage());
-        getMembersButton.addActionListener(e -> {
-            if (isConnected()) {
-                sendMessage("REQUEST_DETAILS");
-                chatArea.append("\n----- Member Details -----\n");
-            }
-        });
-        quitButton.addActionListener(e -> handleClosing());
-
-        return chatPanel;
+        if (quitButton != null) {
+            quitButton.addActionListener(e -> handleClosing());
+        }
     }
 
     private void sendChatMessage() {
         if (!isConnected()) return;
+
+        if (recipientBox == null || messageField == null || chatArea == null) return;
+
         String recipient = (String) recipientBox.getSelectedItem();
         String message = messageField.getText().trim();
         if (message.isEmpty()) return;
@@ -240,6 +209,10 @@ public class ChatClientGUI extends JFrame {
                 JOptionPane.YES_NO_OPTION
         );
         if (confirm == JOptionPane.YES_OPTION) {
+            // When the host leaves, just let the server continue running
+            // The server's existing logic will assign a new coordinator
+
+            // Perform cleanup to properly disconnect from the server
             cleanup();
             System.exit(0);
         }
@@ -247,11 +220,8 @@ public class ChatClientGUI extends JFrame {
 
     private void cleanup() {
         connected = false;
-        if (out != null) {
-            sendMessage("QUIT");
-        }
-        if (heartbeatTimer != null) {
-            heartbeatTimer.stop();
+        if (tickerTimer != null) {
+            tickerTimer.stop();
         }
         if (memberUpdateTimer != null) {
             memberUpdateTimer.stop();
@@ -267,7 +237,9 @@ public class ChatClientGUI extends JFrame {
 
     private void connectToServer(String host, int port) {
         try {
-            socket = new Socket(host, port);
+            socket = new Socket();
+            // Set connection timeout to 3 seconds
+            socket.connect(new InetSocketAddress(host, port), 3000);
             out = new PrintWriter(socket.getOutputStream(), true);
             connected = true;
 
@@ -275,13 +247,41 @@ public class ChatClientGUI extends JFrame {
             this.serverIP = InetAddress.getLocalHost().getHostAddress();
             this.serverPort = port;
             if (serverInfoLabel != null) {
-                serverInfoLabel.setText(String.format("Server: %s:%d", this.serverIP, this.serverPort));
+                if (host.equals("localhost") || host.equals("127.0.0.1")) {
+                    // For localhost connections, try to get the actual machine IP
+                    serverInfoLabel.setText(String.format("Server: %s:%d", this.serverIP, port));
+                } else {
+                    // For external connections, use the provided host
+                    serverInfoLabel.setText(String.format("Server: %s:%d", host, port));
+                }
             }
 
             memberUpdateTimer.start();
             new Thread(() -> receiveMessages(socket)).start();
+        } catch (ConnectException ce) {
+            JOptionPane.showMessageDialog(this,
+                    "No server found on " + host + ":" + port + ".\nPlease check the port number and verify that the server is running.",
+                    "Server Not Found",
+                    JOptionPane.ERROR_MESSAGE);
+        } catch (SocketTimeoutException ste) {
+            JOptionPane.showMessageDialog(this,
+                    "Connection to server timed out.\nPlease check the IP address and ensure the server is running.",
+                    "Connection Timeout",
+                    JOptionPane.ERROR_MESSAGE);
+        } catch (UnknownHostException uhe) {
+            JOptionPane.showMessageDialog(this,
+                    "Unknown host: " + host + "\nPlease check the IP address or hostname.",
+                    "Invalid Host",
+                    JOptionPane.ERROR_MESSAGE);
         } catch (IOException ex) {
-            JOptionPane.showMessageDialog(this, "Connection error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            String errorMsg = ex.getMessage();
+            // Provide a more user-friendly message
+            JOptionPane.showMessageDialog(this,
+                    "Unable to connect to the server: " + host + ":" + port + "\n" +
+                            "Reason: " + (errorMsg != null ? errorMsg : "Unknown error") +
+                            "\n\nPlease verify that the server is running and that you have network connectivity.",
+                    "Connection Error",
+                    JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -305,7 +305,13 @@ public class ChatClientGUI extends JFrame {
                             JOptionPane.ERROR_MESSAGE
                     );
                     cleanup();
-                    cards.show(cardLayout, "login");
+                    if (mainPanel != null) {
+                        CardLayout cl = (CardLayout) mainPanel.getLayout();
+                        cl.show(mainPanel, "login");
+                    }
+                    // Resize back to login size
+                    setSize(400, 500);
+                    setLocationRelativeTo(null);
                 });
             }
         }
@@ -314,63 +320,134 @@ public class ChatClientGUI extends JFrame {
     private void handleMessage(String message) {
         if (message.startsWith("COORDINATOR_STATUS:") && !isCoordinator) {
             isCoordinator = true;
-            statusLabel.setText("Status: Coordinator");
-            statusLabel.setForeground(Color.RED);
-            chatArea.append("You are now the coordinator\n");
-            heartbeatTimer.start();
+            if (statusLabel != null) {
+                statusLabel.setText("Status: Coordinator");
+                statusLabel.setForeground(Color.RED);
+            }
+            if (chatArea != null) {
+                chatArea.append("You are now the coordinator\n");
+            }
+            tickerTimer.start();
         } else if (message.startsWith("COORDINATOR_INFO:")) {
             isCoordinator = false;
             String coordinatorId = message.substring(16);
-            statusLabel.setText("Status: Member");
-            statusLabel.setForeground(Color.BLUE);
-            chatArea.append("Current coordinator is: " + coordinatorId + "\n");
-            heartbeatTimer.stop();
-        } else if (message.startsWith("MEMBER_LIST:")) {
-            String[] members = message.substring(12).split(",");
-            String selectedRecipient = (String) recipientBox.getSelectedItem();
-
-            recipientBox.removeAllItems();
-            recipientBox.addItem("All Chat");
-            for (String member : members) {
-                if (!member.equals(clientId)) {
-                    recipientBox.addItem(member);
+            if (statusLabel != null) {
+                statusLabel.setText("Status: Member");
+                statusLabel.setForeground(Color.BLUE);
+            }
+            if (chatArea != null) {
+                chatArea.append("Current coordinator is: " + coordinatorId + "\n");
+            }
+            tickerTimer.stop();
+        } else if (message.startsWith("SERVER_TIMEOUT:")) {
+            // Handle server timeout message format: SERVER_TIMEOUT:minutes:seconds
+            String[] parts = message.substring(14).split(":");
+            if (parts.length == 2) {
+                try {
+                    int minutes = Integer.parseInt(parts[0]);
+                    int seconds = Integer.parseInt(parts[1]);
+                    updateServerTimeoutLabel(minutes, seconds);
+                } catch (NumberFormatException e) {
+                    e.printStackTrace();
                 }
             }
+        } else if (message.startsWith("MEMBER_LIST:")) {
+            String[] members = message.substring(12).split(",");
+            String selectedRecipient = null;
 
-            // Restore previous selection if it still exists
-            if (selectedRecipient != null) {
-                for (int i = 0; i < recipientBox.getItemCount(); i++) {
-                    if (selectedRecipient.equals(recipientBox.getItemAt(i))) {
-                        recipientBox.setSelectedItem(selectedRecipient);
-                        break;
+            if (recipientBox != null) {
+                selectedRecipient = (String) recipientBox.getSelectedItem();
+                recipientBox.removeAllItems();
+                recipientBox.addItem("All Chat");
+                for (String member : members) {
+                    if (!member.equals(clientId)) {
+                        recipientBox.addItem(member);
+                    }
+                }
+
+                // Show or hide server timeout label based on member count
+                if (members.length <= 1 && serverTimeoutLabel != null) {
+                    serverTimeoutLabel.setVisible(true);
+                } else if (serverTimeoutLabel != null) {
+                    serverTimeoutLabel.setVisible(false);
+                }
+
+                // Restore previous selection if it still exists
+                if (selectedRecipient != null) {
+                    for (int i = 0; i < recipientBox.getItemCount(); i++) {
+                        if (selectedRecipient.equals(recipientBox.getItemAt(i))) {
+                            recipientBox.setSelectedItem(selectedRecipient);
+                            break;
+                        }
                     }
                 }
             }
         } else if (message.startsWith("MEMBER_DETAILS:")) {
-            String[] details = message.substring(15).split(",");
-            StringBuilder detailsMessage = new StringBuilder();
-            detailsMessage.append("\nCurrent Members:\n");
-            detailsMessage.append("------------------------\n");
-            for (String detail : details) {
-                String[] parts = detail.split(":");
-                detailsMessage.append(String.format("Name: %s\n", parts[0]));
-                detailsMessage.append(String.format("IP Address: %s\n", parts[1]));
-                detailsMessage.append(String.format("Port: %s\n", parts[2]));
+            if (chatArea != null) {
+                String[] details = message.substring(15).split(",");
+                StringBuilder detailsMessage = new StringBuilder();
+                detailsMessage.append("\nCurrent Members:\n");
                 detailsMessage.append("------------------------\n");
+                for (String detail : details) {
+                    String[] parts = detail.split(":");
+                    detailsMessage.append(String.format("Name: %s\n", parts[0]));
+                    detailsMessage.append(String.format("IP Address: %s\n", parts[1]));
+                    detailsMessage.append(String.format("Port: %s\n", parts[2]));
+                    detailsMessage.append("------------------------\n");
+                }
+                chatArea.append(detailsMessage.toString());
             }
-            chatArea.append(detailsMessage.toString());
         } else if (message.startsWith("MSG:")) {
-            String[] parts = message.substring(4).split(":", 2);
-            chatArea.append(parts[0] + ": " + parts[1] + "\n");
+            if (chatArea != null) {
+                String[] parts = message.substring(4).split(":", 2);
+                chatArea.append(parts[0] + ": " + parts[1] + "\n");
+            }
         } else if (message.startsWith("PRIVATE_MSG:")) {
-            String[] parts = message.substring(11).split(":", 2);
-            chatArea.append("Private from " + parts[0] + ": " + parts[1] + "\n");
-        } else if (message.startsWith("MEMBER_JOIN:")) {
-            chatArea.append("Member joined: " + message.substring(12) + "\n");
-        } else if (message.startsWith("MEMBER_LEAVE:")) {
-            chatArea.append("Member left: " + message.substring(12) + "\n");
+            if (chatArea != null) {
+                String[] parts = message.substring(11).split(":", 2);
+                chatArea.append("Private from " + parts[0] + ": " + parts[1] + "\n");
+            }
+        } else if (message.startsWith("Member Joined:")) {
+            if (chatArea != null) {
+                chatArea.append("Member joined: " + message.substring(14) + "\n");
+            }
+            // Reset server timeout label when someone joins
+            if (serverTimeoutLabel != null) {
+                serverTimeoutLabel.setVisible(false);
+            }
+        } else if (message.startsWith("Member Left:")) {
+            if (chatArea != null) {
+                chatArea.append("Member left: " + message.substring(12) + "\n");
+            }
+        } else if (message.equals("SERVER_SHUTTING_DOWN")) {
+            if (chatArea != null) {
+                chatArea.append("*** Server is shutting down ***\n");
+            }
+            JOptionPane.showMessageDialog(
+                    this,
+                    "The server is shutting down. You will be disconnected.",
+                    "Server Shutdown",
+                    JOptionPane.WARNING_MESSAGE
+            );
         }
-        chatArea.setCaretPosition(chatArea.getDocument().getLength());
+
+        // Update caret position
+        if (chatArea != null) {
+            chatArea.setCaretPosition(chatArea.getDocument().getLength());
+        }
+    }
+
+    private void updateServerTimeoutLabel(int minutes, int seconds) {
+        if (serverTimeoutLabel != null) {
+            String timeText;
+            if (minutes > 0) {
+                timeText = String.format("Server idle shutdown in: %d min %d sec", minutes, seconds);
+            } else {
+                timeText = String.format("Server idle shutdown in: %d sec", seconds);
+            }
+            serverTimeoutLabel.setText(timeText);
+            serverTimeoutLabel.setVisible(true);
+        }
     }
 
     private void sendMessage(String message) {
@@ -383,16 +460,29 @@ public class ChatClientGUI extends JFrame {
         return connected && socket != null && !socket.isClosed();
     }
 
+    /**
+     * Shows the login panel by setting the card layout to show the "login" card.
+     * This method is called from ApplicationLauncher when starting the client.
+     */
     public void showLoginPanel() {
-        cards.show(cardLayout, "login");
+        CardLayout cl = (CardLayout) mainPanel.getLayout();
+        cl.show(mainPanel, "login");
+        // Ensure we're using the login size
+        setSize(400, 500);
+        setLocationRelativeTo(null);
+    }
+
+    /**
+     * Sets the reference to the server process.
+     * This should only be called when this client is hosting the server.
+     *
+     * @param process The server process
+     */
+    public void setServerProcess(Process process) {
+        this.serverProcess = process;
     }
 
     public static void main(String[] args) {
-        try {
-            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
         SwingUtilities.invokeLater(() -> {
             new ChatClientGUI().setVisible(true);
         });
