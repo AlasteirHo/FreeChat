@@ -25,9 +25,7 @@ public class ClientHandler implements Runnable {
                 server.registerClient(clientId, this);
                 while (running && !socket.isClosed()) {
                     String input = in.readLine();
-                    if (input == null) {
-                        break;
-                    }
+                    if (input == null) break;
                     if (input.equals("QUIT")) {
                         System.out.println("Client " + clientId + " requesting quit");
                         break;
@@ -54,21 +52,18 @@ public class ClientHandler implements Runnable {
                 server.sendPrivateMessage(clientId, parts[0], parts[1]);
             } else if (message.equals("GET_MEMBERS")) {
                 sendMessage("MEMBER_LIST:" + server.getMemberList());
+                sendMessage("INACTIVE_MEMBER_LIST:" + server.getInactiveMemberList());
             } else if (message.equals("REQUEST_DETAILS")) {
                 server.sendMemberDetails(clientId);
             } else if (message.equals("SERVER_SHUTDOWN")) {
-                // Check if this client is the coordinator before allowing shutdown
                 if (server.isClientCoordinator(clientId)) {
                     System.out.println("Server shutdown requested by coordinator: " + clientId);
-                    // Notify all clients that server is shutting down
                     server.broadcastMessage("SERVER_SHUTTING_DOWN");
-                    // Use a separate thread to avoid deadlock during shutdown
                     new Thread(() -> {
                         try {
-                            // Give clients a moment to receive the shutdown message
                             Thread.sleep(500);
                         } catch (InterruptedException e) {
-                            // Ignore
+                            e.printStackTrace();
                         }
                         server.shutdown();
                         System.exit(0);
@@ -105,6 +100,8 @@ public class ClientHandler implements Runnable {
             if (!socket.isClosed()) {
                 socket.close();
             }
+            if (in != null) in.close();
+            if (out != null) out.close();
         } catch (IOException ex) {
             System.err.println("Error closing connection for " + clientId + ": " + ex.getMessage());
         }

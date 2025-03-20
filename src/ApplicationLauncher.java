@@ -1,12 +1,14 @@
 import javax.swing.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.io.IOException;
 import java.net.*;
 import java.util.Random;
 import java.util.Enumeration;
 
 public class ApplicationLauncher extends JFrame {
+
+    // Flag for simulating faults (can be toggled by tests)
+    public static boolean faultInjection = false;
+
     private JButton hostServerButton;
     private JButton joinServerButton;
     private JPanel mainPanel;
@@ -14,24 +16,20 @@ public class ApplicationLauncher extends JFrame {
     public ApplicationLauncher() {
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-        } catch (Exception ei) {
-            ei.printStackTrace();
+        } catch (Exception e) {
+            System.err.println("Failed to set system look and feel: " + e.getMessage());
         }
 
-        setTitle("Chat application");
+        setTitle("FreeChat");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setContentPane(mainPanel);
-
-        // Fix for the focus border
-        hostServerButton.setFocusPainted(false);
-        joinServerButton.setFocusPainted(false);
 
         pack();
         setLocationRelativeTo(null);
 
-        hostServerButton.addActionListener(e -> hostServerWithAutomaticPort());
+        hostServerButton.addActionListener(_ -> hostServerWithAutomaticPort());
 
-        joinServerButton.addActionListener(e -> {
+        joinServerButton.addActionListener(_ -> {
             dispose();
             SwingUtilities.invokeLater(() -> {
                 ChatClientGUI client = new ChatClientGUI();
@@ -41,10 +39,6 @@ public class ApplicationLauncher extends JFrame {
         });
     }
 
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> showMainDialog());
-    }
-
     public static void showMainDialog() {
         ApplicationLauncher dialog = new ApplicationLauncher();
         dialog.setVisible(true);
@@ -52,6 +46,11 @@ public class ApplicationLauncher extends JFrame {
 
     private void hostServerWithAutomaticPort() {
         try {
+            // Simulate a fault if faultInjection is enabled
+            if (faultInjection) {
+                throw new IOException("Injected fault: simulated server start failure");
+            }
+
             // Find an available port randomly
             int port = findRandomAvailablePort();
 
@@ -65,7 +64,7 @@ public class ApplicationLauncher extends JFrame {
                 return;
             }
 
-            // Get the local IP address
+            // Get the local IPv4 address
             String localIP = getLocalIPAddress();
 
             // Start the server process
@@ -85,9 +84,6 @@ public class ApplicationLauncher extends JFrame {
             builder.inheritIO();
             Process serverProcess = builder.start();
 
-            // Wait a moment for the server to start
-            Thread.sleep(1000);
-
             // Display the port assignment dialog with IP address
             JOptionPane.showMessageDialog(
                     this,
@@ -96,99 +92,75 @@ public class ApplicationLauncher extends JFrame {
                     JOptionPane.INFORMATION_MESSAGE
             );
 
-            // Only after the user clicks OK, proceed to the client
+            // Proceed to the client
             dispose();
             SwingUtilities.invokeLater(() -> {
                 ChatClientGUI client = new ChatClientGUI();
 
-                // Set the server process
-                client.setServerProcess(serverProcess);
-
-                // Pre-fill the connection fields with proper values
-                try {
-                    // Pre-fill the port field
-                    java.lang.reflect.Field portField = ChatClientGUI.class.getDeclaredField("portField");
-                    portField.setAccessible(true);
-                    JTextField portTextField = (JTextField) portField.get(client);
-                    portTextField.setText(String.valueOf(port));
-
-                    // Pre-fill the IP field with localhost or actual IP
-                    java.lang.reflect.Field serverIpField = ChatClientGUI.class.getDeclaredField("serverIpField");
-                    serverIpField.setAccessible(true);
-                    JTextField ipTextField = (JTextField) serverIpField.get(client);
-                    ipTextField.setText("localhost"); // Use localhost for self-connections
-                } catch (Exception ex) {
-                    System.err.println("Could not set connection fields: " + ex.getMessage());
-                }
-
+                // Set the pre-filled values directly
+                client.prefillConnectionFields("localhost", String.valueOf(port));
                 client.showLoginPanel();
                 client.setVisible(true);
             });
 
-        } catch (Exception ie) {
+        } catch (Exception e) {
             JOptionPane.showMessageDialog(
                     this,
-                    "Error starting server: " + ie.getMessage(),
+                    "Error starting server: " + e.getMessage(),
                     "Error",
                     JOptionPane.ERROR_MESSAGE
             );
         }
     }
 
-    private static int findRandomAvailablePort() {
+    // Modified port finding to support fault injection
+    public static int findRandomAvailablePort() {
+        if (faultInjection) return -1; // Simulate fault condition
+
         Random random = new Random();
-        // Maximum number of attempts to find an available port
         int maxAttempts = 20;
 
         for (int attempt = 0; attempt < maxAttempts; attempt++) {
-            // Generate a random port between 5000 and 65535
-            int port = 5000 + random.nextInt(60536); // 65535 - 5000 + 1 = 60536
-
+            int port = random.nextInt(5000, 65535); // Port between 5000 and 65535
             try (ServerSocket socket = new ServerSocket(port)) {
-                // If we get here, the port is available
                 return port;
             } catch (IOException e) {
-                // Port is not available, try another one
+                // Port is not available, try another
                 continue;
             }
         }
-
-        // If we couldn't find a port after several attempts, return -1
         return -1;
     }
 
     /**
-     * Gets the local IP address of the machine.
+     * Gets the local IP address of the machine on the network instead of Localhost/127.0.0.1
      * Prefers non-loopback addresses.
      *
-     * @return The local IP address as a string
      */
     private String getLocalIPAddress() {
         try {
-            // Try to get the non-loopback address
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
             while (interfaces.hasMoreElements()) {
                 NetworkInterface networkInterface = interfaces.nextElement();
-                // Skip loopback, inactive, or virtual interfaces
                 if (networkInterface.isLoopback() || !networkInterface.isUp() || networkInterface.isVirtual()) {
                     continue;
                 }
-
                 Enumeration<InetAddress> addresses = networkInterface.getInetAddresses();
                 while (addresses.hasMoreElements()) {
                     InetAddress addr = addresses.nextElement();
-                    // We prefer IPv4 addresses
                     if (!addr.isLoopbackAddress() && addr instanceof Inet4Address) {
                         return addr.getHostAddress();
                     }
                 }
             }
-
-            // Fallback to localhost if no other address is found
             return InetAddress.getLocalHost().getHostAddress();
         } catch (Exception e) {
-            // In case of any errors, return a sensible default
+            System.err.println("Error getting local IP address: " + e.getMessage());
             return "127.0.0.1";
         }
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(ApplicationLauncher::showMainDialog);
     }
 }

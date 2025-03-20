@@ -3,9 +3,15 @@ import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
 import java.net.*;
+import java.util.Arrays;
 import java.util.Random;
 import javax.swing.border.EmptyBorder;
+import javax.swing.border.TitledBorder;
 
+/**
+ * A GUI client for the chat system. Provides the user interface for connecting to
+ * a chat server, sending and receiving messages, and monitoring member status.
+ */
 public class ChatClientGUI extends JFrame {
     // Main panels
     private JPanel mainPanel;
@@ -25,7 +31,7 @@ public class ChatClientGUI extends JFrame {
     private JPanel serverInfoPanel;
     private JLabel statusLabel;
     private JLabel serverInfoLabel;
-    private JLabel serverTimeoutLabel; // Label for server timeout
+    private final JLabel serverTimeoutLabel; // Label for server timeout
     private JTextArea chatArea;
     private JPanel bottomPanel;
     private JComboBox<String> recipientBox;
@@ -34,33 +40,37 @@ public class ChatClientGUI extends JFrame {
     private JButton getMembersButton;
     private JButton quitButton;
 
+    // Member tracking components
+    private JPanel memberListPanel;
+    private JTextArea activeMembersArea;
+    private JTextArea inactiveMembersArea;
+    private JFrame memberFrame = null;
+
     // Connection variables
     private PrintWriter out;
     private String clientId;
     private boolean isCoordinator = false;
-    private Timer tickerTimer;
-    private Timer memberUpdateTimer;
+    private final javax.swing.Timer tickerTimer;
+    private final javax.swing.Timer memberUpdateTimer;
     private Socket socket;
     private volatile boolean connected = false;
-    private String serverIP;
-    private int serverPort;
 
-    // Server process (only set when this client is hosting the server)
-    private Process serverProcess = null;
-
+    /**
+     * Creates a new ChatClientGUI.
+     */
     public ChatClientGUI() {
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception e) {
-            e.printStackTrace();
+            System.err.println("Failed to set system look and feel: " + e.getMessage());
         }
 
         setTitle("Chat System");
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         setContentPane(mainPanel);
 
-        // Initially smaller size for login screen
-        setSize(400, 500);
+        // Make sure to use the preferred size from the form
+        pack();
         setLocationRelativeTo(null);
 
         addWindowListener(new WindowAdapter() {
@@ -70,29 +80,19 @@ public class ChatClientGUI extends JFrame {
             }
         });
 
-        // Apply border to chat scroll pane programmatically to avoid form loading errors
-        JScrollPane scrollPane = null;
-        for (Component comp : chatPanel.getComponents()) {
-            if (comp instanceof JScrollPane) {
-                scrollPane = (JScrollPane) comp;
-                break;
-            }
-        }
-
-        if (scrollPane != null) {
-            scrollPane.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
-        }
-
         // Add server timeout label
         serverTimeoutLabel = new JLabel();
         serverTimeoutLabel.setForeground(Color.RED);
         serverTimeoutLabel.setVisible(false);
         serverTimeoutLabel.setBorder(new EmptyBorder(0, 5, 0, 0));
 
-        // Add it to the serverInfoPanel (assuming this panel exists in your form)
+        // Add it to the serverInfoPanel
         if (serverInfoPanel != null) {
             serverInfoPanel.add(serverTimeoutLabel);
         }
+
+        // Create and add the member list panel
+        createMemberListPanel();
 
         // Set up login panel actions
         setupLoginPanel();
@@ -101,21 +101,76 @@ public class ChatClientGUI extends JFrame {
         setupChatPanel();
 
         // Initialize timers
-        tickerTimer = new Timer(20000, e -> {
+        tickerTimer = new javax.swing.Timer(20000, _ -> {
             if (isCoordinator && isConnected()) {
-                sendMessage("Ticker");
+                SendMessage("Ticker");
             }
         });
 
-        memberUpdateTimer = new Timer(5000, e -> {
+        memberUpdateTimer = new javax.swing.Timer(5000, _ -> {
             if (isConnected()) {
-                sendMessage("GET_MEMBERS");
+                SendMessage("GET_MEMBERS");
             }
         });
     }
 
+    /**
+     * Creates the panel that displays active and inactive members.
+     */
+    private void createMemberListPanel() {
+        // Create the panel that will hold the member lists
+        memberListPanel = new JPanel();
+        memberListPanel.setLayout(new BorderLayout());
+        memberListPanel.setPreferredSize(new Dimension(200, 600));
+        memberListPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+
+        // Create the active members area
+        JPanel activePanel = new JPanel(new BorderLayout());
+        activePanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Active Members",
+                TitledBorder.CENTER,
+                TitledBorder.TOP));
+
+        activeMembersArea = new JTextArea();
+        activeMembersArea.setEditable(false);
+        activeMembersArea.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        activeMembersArea.setBackground(new Color(240, 255, 240)); // Light green background
+
+        JScrollPane activeScrollPane = new JScrollPane(activeMembersArea);
+        activeScrollPane.setPreferredSize(new Dimension(190, 200));
+        activePanel.add(activeScrollPane, BorderLayout.CENTER);
+
+        // Create the inactive members area
+        JPanel inactivePanel = new JPanel(new BorderLayout());
+        inactivePanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Inactive Members",
+                TitledBorder.CENTER,
+                TitledBorder.TOP));
+
+        inactiveMembersArea = new JTextArea();
+        inactiveMembersArea.setEditable(false);
+        inactiveMembersArea.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        inactiveMembersArea.setBackground(new Color(255, 240, 240)); // Light red background
+
+        JScrollPane inactiveScrollPane = new JScrollPane(inactiveMembersArea);
+        inactiveScrollPane.setPreferredSize(new Dimension(190, 200));
+        inactivePanel.add(inactiveScrollPane, BorderLayout.CENTER);
+
+        // Add both panels to the member list panel
+        memberListPanel.add(activePanel, BorderLayout.NORTH);
+        memberListPanel.add(inactivePanel, BorderLayout.CENTER);
+
+        // Initially hide the member list panel (shown only for coordinators)
+        memberListPanel.setVisible(false);
+    }
+
+    /**
+     * Sets up the actions for the login panel.
+     */
     private void setupLoginPanel() {
-        connectButton.addActionListener(e -> {
+        connectButton.addActionListener(_ -> {
             try {
                 String username = usernameField.getText().trim();
                 if (username.isEmpty()) {
@@ -123,23 +178,26 @@ public class ChatClientGUI extends JFrame {
                     return;
                 }
 
+                String serverIp = serverIpField.getText().trim();
+                if (serverIp.isEmpty()) {
+                    JOptionPane.showMessageDialog(this,
+                            "Please insert an IP address",
+                            "Error",
+                            JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+
                 clientId = username + "#" + String.format("%04d", new Random().nextInt(10000));
                 if (!isConnected()) {
                     connectToServer(
-                            serverIpField.getText(),
+                            serverIp,
                             Integer.parseInt(portField.getText())
                     );
                 }
 
                 if (isConnected()) {
-                    sendMessage("CONNECT:" + clientId);
-                    CardLayout cl = (CardLayout) mainPanel.getLayout();
-                    cl.show(mainPanel, "chat");
-                    setTitle("Chat Client - " + clientId);
-
-                    // Resize window to larger size for chat panel
-                    setSize(600, 650);
-                    setLocationRelativeTo(null); // Re-center with new size
+                    SendMessage("CONNECT:" + clientId);
+                    showChatPanel();
                 }
             } catch (NumberFormatException ex) {
                 JOptionPane.showMessageDialog(
@@ -151,56 +209,64 @@ public class ChatClientGUI extends JFrame {
             }
         });
 
-        cancelButton.addActionListener(e -> {
+        cancelButton.addActionListener(_ -> {
             dispose(); // Close current window
             // Show the main application dialog again
-            SwingUtilities.invokeLater(() -> {
-                ApplicationLauncher.showMainDialog();
-            });
+            SwingUtilities.invokeLater(ApplicationLauncher::showMainDialog);
         });
     }
 
+    /**
+     * Sets up the actions for the chat panel.
+     */
     private void setupChatPanel() {
         if (sendButton != null) {
-            sendButton.addActionListener(e -> sendChatMessage());
+            sendButton.addActionListener(_ -> sendChatMessage());
         }
 
         if (messageField != null) {
-            messageField.addActionListener(e -> sendChatMessage());
+            messageField.addActionListener(_ -> sendChatMessage());
         }
 
         if (getMembersButton != null) {
-            getMembersButton.addActionListener(e -> {
+            getMembersButton.addActionListener(_ -> {
                 if (isConnected() && chatArea != null) {
-                    sendMessage("REQUEST_DETAILS");
+                    SendMessage("REQUEST_DETAILS");
                     chatArea.append("\n----- Member Details -----\n");
                 }
             });
         }
 
         if (quitButton != null) {
-            quitButton.addActionListener(e -> handleClosing());
+            quitButton.addActionListener(_ -> handleClosing());
         }
     }
 
+    /**
+     * Sends a chat message to the server.
+     * The message will be broadcast to all users or sent privately
+     * based on the recipient selection.
+     */
     private void sendChatMessage() {
-        if (!isConnected()) return;
-
-        if (recipientBox == null || messageField == null || chatArea == null) return;
+        if (!isConnected() || recipientBox == null || messageField == null || chatArea == null) return;
 
         String recipient = (String) recipientBox.getSelectedItem();
         String message = messageField.getText().trim();
         if (message.isEmpty()) return;
 
+        assert recipient != null;
         if (recipient.equals("All Chat")) {
-            sendMessage("BROADCAST:" + message);
+            SendMessage("BROADCAST:" + message);
         } else {
-            sendMessage("PRIVATE:" + recipient + ":" + message);
+            SendMessage("PRIVATE:" + recipient + ":" + message);
             chatArea.append("Private to " + recipient + ": " + message + "\n");
         }
         messageField.setText("");
     }
 
+    /**
+     * Handles the closing of the window, asking for confirmation.
+     */
     private void handleClosing() {
         int confirm = JOptionPane.showConfirmDialog(
                 this,
@@ -209,15 +275,15 @@ public class ChatClientGUI extends JFrame {
                 JOptionPane.YES_NO_OPTION
         );
         if (confirm == JOptionPane.YES_OPTION) {
-            // When the host leaves, just let the server continue running
-            // The server's existing logic will assign a new coordinator
-
             // Perform cleanup to properly disconnect from the server
             cleanup();
             System.exit(0);
         }
     }
 
+    /**
+     * Cleans up resources when the client is closing.
+     */
     private void cleanup() {
         connected = false;
         if (tickerTimer != null) {
@@ -226,15 +292,35 @@ public class ChatClientGUI extends JFrame {
         if (memberUpdateTimer != null) {
             memberUpdateTimer.stop();
         }
+
+        // Clean up the member frame if it exists
+        if (memberFrame != null) {
+            memberFrame.dispose();
+            memberFrame = null;
+        }
+
+        // Properly close socket and streams
         try {
+            if (out != null) {
+                out.close();
+                out = null;
+            }
+
             if (socket != null && !socket.isClosed()) {
                 socket.close();
+                socket = null;
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            System.err.println("Error during cleanup: " + e.getMessage());
         }
     }
 
+    /**
+     * Connects to the chat server.
+     *
+     * @param host the server hostname or IP
+     * @param port the server port
+     */
     private void connectToServer(String host, int port) {
         try {
             socket = new Socket();
@@ -244,12 +330,11 @@ public class ChatClientGUI extends JFrame {
             connected = true;
 
             // Get actual IP instead of localhost
-            this.serverIP = InetAddress.getLocalHost().getHostAddress();
-            this.serverPort = port;
+            String serverIP = InetAddress.getLocalHost().getHostAddress();
             if (serverInfoLabel != null) {
                 if (host.equals("localhost") || host.equals("127.0.0.1")) {
                     // For localhost connections, try to get the actual machine IP
-                    serverInfoLabel.setText(String.format("Server: %s:%d", this.serverIP, port));
+                    serverInfoLabel.setText(String.format("Server: %s:%d", serverIP, port));
                 } else {
                     // For external connections, use the provided host
                     serverInfoLabel.setText(String.format("Server: %s:%d", host, port));
@@ -259,32 +344,39 @@ public class ChatClientGUI extends JFrame {
             memberUpdateTimer.start();
             new Thread(() -> receiveMessages(socket)).start();
         } catch (ConnectException ce) {
-            JOptionPane.showMessageDialog(this,
-                    "No server found on " + host + ":" + port + ".\nPlease check the port number and verify that the server is running.",
-                    "Server Not Found",
-                    JOptionPane.ERROR_MESSAGE);
+            showConnectionError("No server found on " + host + ":" + port +
+                            ".\nPlease check the port number and verify that the server is running.",
+                    "Server Not Found");
         } catch (SocketTimeoutException ste) {
-            JOptionPane.showMessageDialog(this,
-                    "Connection to server timed out.\nPlease check the IP address and ensure the server is running.",
-                    "Connection Timeout",
-                    JOptionPane.ERROR_MESSAGE);
+            showConnectionError("Connection to server timed out.\nPlease check the IP address and ensure the server is running.",
+                    "Connection Timeout");
         } catch (UnknownHostException uhe) {
-            JOptionPane.showMessageDialog(this,
-                    "Unknown host: " + host + "\nPlease check the IP address or hostname.",
-                    "Invalid Host",
-                    JOptionPane.ERROR_MESSAGE);
+            showConnectionError("Unknown host: " + host + "\nPlease check the IP address or hostname.",
+                    "Invalid Host");
         } catch (IOException ex) {
             String errorMsg = ex.getMessage();
-            // Provide a more user-friendly message
-            JOptionPane.showMessageDialog(this,
-                    "Unable to connect to the server: " + host + ":" + port + "\n" +
+            showConnectionError("Unable to connect to the server: " + host + ":" + port + "\n" +
                             "Reason: " + (errorMsg != null ? errorMsg : "Unknown error") +
                             "\n\nPlease verify that the server is running and that you have network connectivity.",
-                    "Connection Error",
-                    JOptionPane.ERROR_MESSAGE);
+                    "Connection Error");
         }
     }
 
+    /**
+     * Helper method to show connection errors.
+     *
+     * @param message the error message
+     * @param title the dialog title
+     */
+    private void showConnectionError(String message, String title) {
+        JOptionPane.showMessageDialog(this, message, title, JOptionPane.ERROR_MESSAGE);
+    }
+
+    /**
+     * Starts a thread to receive messages from the server.
+     *
+     * @param socket the socket connected to the server
+     */
     private void receiveMessages(Socket socket) {
         try {
             BufferedReader in = new BufferedReader(
@@ -305,18 +397,17 @@ public class ChatClientGUI extends JFrame {
                             JOptionPane.ERROR_MESSAGE
                     );
                     cleanup();
-                    if (mainPanel != null) {
-                        CardLayout cl = (CardLayout) mainPanel.getLayout();
-                        cl.show(mainPanel, "login");
-                    }
-                    // Resize back to login size
-                    setSize(400, 500);
-                    setLocationRelativeTo(null);
+                    showLoginPanel();
                 });
             }
         }
     }
 
+    /**
+     * Handles messages received from the server.
+     *
+     * @param message the message to handle
+     */
     private void handleMessage(String message) {
         if (message.startsWith("COORDINATOR_STATUS:") && !isCoordinator) {
             isCoordinator = true;
@@ -327,7 +418,16 @@ public class ChatClientGUI extends JFrame {
             if (chatArea != null) {
                 chatArea.append("You are now the coordinator\n");
             }
+
+            // Show the member list panel for coordinators
+            updateUIForCoordinatorStatus();
+
+            // Start the timers
             tickerTimer.start();
+
+            // Request member list immediately to populate the window
+            SendMessage("GET_MEMBERS");
+
         } else if (message.startsWith("COORDINATOR_INFO:")) {
             isCoordinator = false;
             String coordinatorId = message.substring(16);
@@ -336,9 +436,14 @@ public class ChatClientGUI extends JFrame {
                 statusLabel.setForeground(Color.BLUE);
             }
             if (chatArea != null) {
-                chatArea.append("Current coordinator is: " + coordinatorId + "\n");
+                chatArea.append("Current coordinator is " + coordinatorId + "\n");
             }
+
+            // Hide the member list panel for regular members
+            updateUIForCoordinatorStatus();
+
             tickerTimer.stop();
+
         } else if (message.startsWith("SERVER_TIMEOUT:")) {
             // Handle server timeout message format: SERVER_TIMEOUT:minutes:seconds
             String[] parts = message.substring(14).split(":");
@@ -348,10 +453,11 @@ public class ChatClientGUI extends JFrame {
                     int seconds = Integer.parseInt(parts[1]);
                     updateServerTimeoutLabel(minutes, seconds);
                 } catch (NumberFormatException e) {
-                    e.printStackTrace();
+                    System.err.println("Error parsing timeout values: " + e.getMessage());
                 }
             }
         } else if (message.startsWith("MEMBER_LIST:")) {
+            // This is where we update from the server's data
             String[] members = message.substring(12).split(",");
             String selectedRecipient = null;
 
@@ -360,7 +466,7 @@ public class ChatClientGUI extends JFrame {
                 recipientBox.removeAllItems();
                 recipientBox.addItem("All Chat");
                 for (String member : members) {
-                    if (!member.equals(clientId)) {
+                    if (!member.isEmpty() && !member.equals(clientId)) {
                         recipientBox.addItem(member);
                     }
                 }
@@ -381,6 +487,28 @@ public class ChatClientGUI extends JFrame {
                         }
                     }
                 }
+
+                // If coordinator, update the active members display
+                if (isCoordinator) {
+                    updateMemberListDisplay(members);
+                }
+            }
+        } else if (message.startsWith("INACTIVE_MEMBER_LIST:")) {
+            String inactiveList = message.substring(21);
+
+            // If coordinator, update the inactive members display directly with data from server
+            if (isCoordinator && inactiveMembersArea != null) {
+                StringBuilder inactiveText = new StringBuilder();
+                // Sort the member names for consistent display
+                String[] inactiveMembers = inactiveList.split(",");
+                Arrays.sort(inactiveMembers);
+
+                for (String member : inactiveMembers) {
+                    if (!member.isEmpty()) {
+                        inactiveText.append(member).append("\n");
+                    }
+                }
+                inactiveMembersArea.setText(inactiveText.toString());
             }
         } else if (message.startsWith("MEMBER_DETAILS:")) {
             if (chatArea != null) {
@@ -390,10 +518,12 @@ public class ChatClientGUI extends JFrame {
                 detailsMessage.append("------------------------\n");
                 for (String detail : details) {
                     String[] parts = detail.split(":");
-                    detailsMessage.append(String.format("Name: %s\n", parts[0]));
-                    detailsMessage.append(String.format("IP Address: %s\n", parts[1]));
-                    detailsMessage.append(String.format("Port: %s\n", parts[2]));
-                    detailsMessage.append("------------------------\n");
+                    if (parts.length >= 3) {
+                        detailsMessage.append(String.format("Name: %s\n", parts[0]));
+                        detailsMessage.append(String.format("IP Address: %s\n", parts[1]));
+                        detailsMessage.append(String.format("Port: %s\n", parts[2]));
+                        detailsMessage.append("------------------------\n");
+                    }
                 }
                 chatArea.append(detailsMessage.toString());
             }
@@ -409,7 +539,8 @@ public class ChatClientGUI extends JFrame {
             }
         } else if (message.startsWith("Member Joined:")) {
             if (chatArea != null) {
-                chatArea.append("Member joined: " + message.substring(14) + "\n");
+                String newMember = message.substring(14);
+                chatArea.append("Member joined: " + newMember + "\n");
             }
             // Reset server timeout label when someone joins
             if (serverTimeoutLabel != null) {
@@ -417,7 +548,8 @@ public class ChatClientGUI extends JFrame {
             }
         } else if (message.startsWith("Member Left:")) {
             if (chatArea != null) {
-                chatArea.append("Member left: " + message.substring(12) + "\n");
+                String leftMember = message.substring(12);
+                chatArea.append("Member left: " + leftMember + "\n");
             }
         } else if (message.equals("SERVER_SHUTTING_DOWN")) {
             if (chatArea != null) {
@@ -437,6 +569,110 @@ public class ChatClientGUI extends JFrame {
         }
     }
 
+    /**
+     * This method is called when the coordinator status changes to update the UI.
+     * It creates or disposes a separate window for the member list.
+     */
+    private void updateUIForCoordinatorStatus() {
+        if (isCoordinator) {
+            try {
+                // Close any existing member frame
+                if (memberFrame != null) {
+                    memberFrame.dispose();
+                }
+
+                // Create a new JFrame for the member list panel
+                memberFrame = new JFrame("Member Activity");
+                memberFrame.setDefaultCloseOperation(JFrame.HIDE_ON_CLOSE);
+                memberFrame.setSize(220, 600);
+                memberFrame.setResizable(true);
+                memberFrame.setAlwaysOnTop(false);
+
+                // Position the frame to the right of the main window
+                Point mainLoc = getLocation();
+                Dimension mainSize = getSize();
+                memberFrame.setLocation(mainLoc.x + mainSize.width, mainLoc.y);
+
+                // Add the member list panel to the frame
+                memberFrame.add(memberListPanel);
+                memberListPanel.setVisible(true);
+
+                // Show the member frame and bring it to front
+                memberFrame.setVisible(true);
+                memberFrame.toFront();
+
+                // Add title to indicate this is a companion window
+                memberFrame.setTitle("Member Activity - " + clientId);
+
+                // Request initial member data from server
+                SendMessage("GET_MEMBERS");
+
+                // Add a listener to keep the member frame properly positioned
+                this.addComponentListener(new ComponentAdapter() {
+                    @Override
+                    public void componentMoved(ComponentEvent e) {
+                        if (memberFrame != null && memberFrame.isVisible()) {
+                            Point mainLoc = getLocation();
+                            Dimension mainSize = getSize();
+                            memberFrame.setLocation(mainLoc.x + mainSize.width, mainLoc.y);
+                        }
+                    }
+                });
+            } catch (Exception ex) {
+                System.err.println("Error creating member activity window: " + ex.getMessage());
+                JOptionPane.showMessageDialog(this,
+                        "Error creating member activity window: " + ex.getMessage(),
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+        } else {
+            // Hide and dispose the member frame if it exists
+            if (memberFrame != null) {
+                memberFrame.setVisible(false);
+                memberFrame.dispose();
+                memberFrame = null;
+            }
+        }
+    }
+
+    /**
+     * Update member list display for active members.
+     *
+     * @param activeMembers array of active member names
+     */
+    private void updateMemberListDisplay(String[] activeMembers) {
+        if (!isCoordinator) return;
+
+        // Make sure the member frame is visible
+        if (memberFrame != null && !memberFrame.isVisible()) {
+            memberFrame.setVisible(true);
+            memberFrame.toFront();
+        }
+
+        // Update active members text area
+        if (activeMembersArea != null) {
+            StringBuilder activeText = new StringBuilder();
+            Arrays.sort(activeMembers); // Sort the members alphabetically
+
+            for (String member : activeMembers) {
+                if (member.isEmpty()) continue;
+
+                activeText.append(member);
+                if (member.equals(clientId)) {
+                    activeText.append(" (You)");
+                }
+                activeText.append("\n");
+            }
+            activeMembersArea.setText(activeText.toString());
+        }
+    }
+
+    /**
+     * Updates the server timeout label with the remaining time.
+     *
+     * @param minutes minutes remaining before shutdown
+     * @param seconds seconds remaining before shutdown
+     */
     private void updateServerTimeoutLabel(int minutes, int seconds) {
         if (serverTimeoutLabel != null) {
             String timeText;
@@ -450,41 +686,99 @@ public class ChatClientGUI extends JFrame {
         }
     }
 
-    private void sendMessage(String message) {
+    /**
+     * Sends a message to the server.
+     *
+     * @param message the message to send
+     */
+    private void SendMessage(String message) {
         if (isConnected() && out != null) {
             out.println(message);
         }
     }
 
+    /**
+     * Checks if the client is connected to the server.
+     *
+     * @return true if connected, false otherwise
+     */
     private boolean isConnected() {
         return connected && socket != null && !socket.isClosed();
     }
 
     /**
      * Shows the login panel by setting the card layout to show the "login" card.
-     * This method is called from ApplicationLauncher when starting the client.
+     * Also cleans up the member activity window if it exists.
      */
     public void showLoginPanel() {
+        // Hide and dispose the member frame if it exists
+        if (memberFrame != null) {
+            memberFrame.dispose();
+            memberFrame = null;
+        }
+
+        // Reset coordinator status when going back to login
+        isCoordinator = false;
+
+        // Now show the login panel
         CardLayout cl = (CardLayout) mainPanel.getLayout();
         cl.show(mainPanel, "login");
-        // Ensure we're using the login size
-        setSize(400, 500);
+
+        pack();
         setLocationRelativeTo(null);
+        setTitle("Chat System");
     }
 
     /**
-     * Sets the reference to the server process.
-     * This should only be called when this client is hosting the server.
-     *
-     * @param process The server process
+     * Shows the chat panel and ensures the member activity window is displayed if coordinator.
      */
-    public void setServerProcess(Process process) {
-        this.serverProcess = process;
+    private void showChatPanel() {
+        CardLayout cl = (CardLayout) mainPanel.getLayout();
+        cl.show(mainPanel, "chat");
+
+        // Set title with client ID
+        setTitle("Chat Client - " + clientId);
+
+        pack();
+        setLocationRelativeTo(null);
+
+        // If coordinator, make sure member activity window is showing
+        if (isCoordinator) {
+            updateUIForCoordinatorStatus();
+        }
     }
 
+    /**
+     * Sets the connection fields to the provided values.
+     * This is a replacement for the reflection-based approach.
+     *
+     * @param ip The IP address to set
+     * @param port The port number to set
+     */
+    public void prefillConnectionFields(String ip, String port) {
+        if (serverIpField != null) {
+            serverIpField.setText(ip);
+        }
+        if (portField != null) {
+            portField.setText(port);
+        }
+    }
+
+    @Override
+    public void setVisible(boolean visible) {
+        super.setVisible(visible);
+
+        // If becoming visible and we're the coordinator, ensure member window is visible
+        if (visible && isCoordinator && memberFrame != null) {
+            memberFrame.setVisible(true);
+            memberFrame.toFront();
+        }
+    }
+
+    /**
+     * Main method for standalone testing.
+     */
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
-            new ChatClientGUI().setVisible(true);
-        });
+        SwingUtilities.invokeLater(() -> new ChatClientGUI().setVisible(true));
     }
 }

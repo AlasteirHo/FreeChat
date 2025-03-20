@@ -4,14 +4,20 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public class Server {
+    // Flag to indicate test mode; set to true during testing to avoid System.exit(0)
+    public static boolean testMode = false;
+
     private final ServerSocket serverSocket;
     private final Map<String, ClientHandler> clients = new ConcurrentHashMap<>();
     private String currentCoordinator = null;
     private final ExecutorService clientThreadPool = Executors.newCachedThreadPool();
-    private final Timer emptyServerTimer;
-    private volatile boolean isRunning = false;
-    private long shutdownTime = 0; // Time when shutdown will occur if clients remain empty
-    private final int SHUTDOWN_DELAY_MS = 300000; // 5 minutes
+    private volatile boolean isRunning;
+
+    // Simplified inactive members tracking
+    private final Set<String> inactiveMembers = ConcurrentHashMap.newKeySet();
+
+    // Shutdown countdown thread
+    private Thread shutdownThread = null;
 
     public Server(int port) throws IOException {
         try {
@@ -19,37 +25,12 @@ public class Server {
             serverSocket.setReuseAddress(true);
             serverSocket.bind(new InetSocketAddress(port));
 
-            emptyServerTimer = new Timer();
-            emptyServerTimer.scheduleAtFixedRate(new TimerTask() {
-                @Override
-                public void run() {
-                    if (clients.isEmpty()) {
-                        if (shutdownTime == 0) {
-                            // First time entering empty state, set shutdown time
-                            shutdownTime = System.currentTimeMillis() + SHUTDOWN_DELAY_MS;
-                            System.out.println("No clients connected. Server will shut down in " +
-                                    (SHUTDOWN_DELAY_MS / 60000) + " minutes if no clients connect");
-                        } else if (System.currentTimeMillis() >= shutdownTime) {
-                            // Time's up, shutdown
-                            shutdown();
-                            emptyServerTimer.cancel();
-                            System.exit(0);
-                        } else {
-                            // Still waiting, broadcast time remaining
-                            broadcastShutdownWarning();
-                        }
-                    } else {
-                        // Clients exist, reset shutdown time
-                        if (shutdownTime != 0) {
-                            shutdownTime = 0;
-                            System.out.println("Shutdown timer cancelled - clients connected");
-                        }
-                    }
-                }
-            }, 10000, 10000); // Check every 10 seconds
-
             isRunning = true;
             System.out.println("Server successfully started on port " + port);
+
+            // Start the shutdown countdown on startup
+            startShutdownCountdown();
+
             startAcceptingClients();
         } catch (BindException e) {
             throw new IOException("Port " + port + " is already in use. Please try a different port.");
@@ -62,17 +43,41 @@ public class Server {
         }
     }
 
-    private void broadcastShutdownWarning() {
-        if (shutdownTime > 0) {
-            long timeRemaining = Math.max(0, shutdownTime - System.currentTimeMillis());
-            int secondsRemaining = (int) (timeRemaining / 1000);
-            int minutesRemaining = secondsRemaining / 60;
-            secondsRemaining %= 60;
+    private synchronized void startShutdownCountdown() {
+        if (shutdownThread != null && shutdownThread.isAlive()) {
+            return;
+        }
 
-            String message = String.format("SERVER_TIMEOUT:%d:%d", minutesRemaining, secondsRemaining);
-            broadcastMessage(message);
-            System.out.println("Server will shut down in " + minutesRemaining + " minutes and " +
-                    secondsRemaining + " seconds if no clients connect");
+        shutdownThread = new Thread(() -> {
+            try {
+                System.out.println("Server will shut down in 5 minutes if no clients connect");
+                broadcastMessage("SERVER_TIMEOUT:5:0");
+                for (int remainingSeconds = 270; remainingSeconds > 0; remainingSeconds -= 30) {
+                    Thread.sleep(30000);
+                    if (!clients.isEmpty()) {
+                        System.out.println("Clients connected. Cancelling shutdown timer.");
+                        return;
+                    }
+                    int minutes = remainingSeconds / 60;
+                    int seconds = remainingSeconds % 60;
+                    System.out.println("Server will shut down in " + minutes + " minutes and " + seconds + " seconds if no clients connect");
+                    broadcastMessage(String.format("SERVER_TIMEOUT:%d:%d", minutes, seconds));
+                }
+                System.out.println("Shutdown time reached with no clients. Shutting down server.");
+                shutdown();
+            } catch (InterruptedException e) {
+                System.out.println("Shutdown countdown interrupted.");
+            }
+        });
+        shutdownThread.setDaemon(true);
+        shutdownThread.setName("ShutdownThread");
+        shutdownThread.start();
+    }
+
+    private synchronized void cancelShutdownCountdown() {
+        if (shutdownThread != null && shutdownThread.isAlive()) {
+            shutdownThread.interrupt();
+            shutdownThread = null;
         }
     }
 
@@ -95,8 +100,12 @@ public class Server {
 
     public synchronized void registerClient(String clientId, ClientHandler handler) {
         clients.put(clientId, handler);
-        // Reset shutdown timer when a client connects
-        shutdownTime = 0;
+        // Clean the client ID and remove from inactive members if rejoining
+        String cleanId = cleanMemberName(clientId);
+        inactiveMembers.remove(cleanId);
+
+        // Cancel shutdown countdown when a client connects
+        cancelShutdownCountdown();
 
         if (currentCoordinator == null) {
             setNewCoordinator(clientId);
@@ -104,24 +113,27 @@ public class Server {
             handler.sendMessage("COORDINATOR_INFO:" + currentCoordinator);
         }
         broadcastMessage("Member Joined:" + clientId);
-        String memberList = getMemberList();
-        broadcastMessage("MEMBER_LIST:" + memberList);
+        updateMemberLists();
     }
 
     public synchronized void removeClient(String clientId) {
         clients.remove(clientId);
         System.out.println("Client removed from member list: " + clientId);
+
+        String cleanId = cleanMemberName(clientId);
+        if (!cleanId.isEmpty()) {
+            inactiveMembers.add(cleanId);
+            System.out.println("Added to inactive members list: " + cleanId);
+        }
+
         if (clientId.equals(currentCoordinator)) {
             assignNewCoordinator();
-        }
-        broadcastMessage("Member Left:" + clientId);
-        broadcastMemberList();
-
-        // If this was the last client, start shutdown timer
-        if (clients.isEmpty()) {
-            shutdownTime = System.currentTimeMillis() + SHUTDOWN_DELAY_MS;
-            System.out.println("No clients connected. Server will shut down in " + (SHUTDOWN_DELAY_MS / 60000) +
-                    " minutes if no clients connect");
+        } else {
+            broadcastMessage("Member Left:" + clientId);
+            updateMemberLists();
+            if (clients.isEmpty()) {
+                startShutdownCountdown();
+            }
         }
     }
 
@@ -140,14 +152,9 @@ public class Server {
         } else {
             currentCoordinator = null;
             System.out.println("No clients available for coordinator role");
-
-            // Start the 5-minute shutdown timer for no coordinator
-            if (shutdownTime == 0) {
-                shutdownTime = System.currentTimeMillis() + SHUTDOWN_DELAY_MS;
-                System.out.println("No coordinator available. Server will shut down in " +
-                        (SHUTDOWN_DELAY_MS / 60000) + " minutes if no clients connect");
-                // Don't immediately shut down - let the emptyServerTimer handle it
-            }
+            broadcastMessage("Member Left:" + currentCoordinator);
+            updateMemberLists();
+            startShutdownCountdown();
         }
     }
 
@@ -163,7 +170,12 @@ public class Server {
     }
 
     public void broadcastMessage(String message) {
-        System.out.println(message);
+        boolean suppressConsoleOutput = message.startsWith("SERVER_TIMEOUT:") ||
+                message.startsWith("MEMBER_LIST:") ||
+                message.startsWith("INACTIVE_MEMBER_LIST:");
+        if (!suppressConsoleOutput) {
+            System.out.println(message);
+        }
         for (ClientHandler client : new ArrayList<>(clients.values())) {
             try {
                 client.sendMessage(message);
@@ -173,9 +185,11 @@ public class Server {
         }
     }
 
-    private void broadcastMemberList() {
+    private void updateMemberLists() {
         String memberList = getMemberList();
         broadcastMessage("MEMBER_LIST:" + memberList);
+        String inactiveMemberList = getInactiveMemberList();
+        broadcastMessage("INACTIVE_MEMBER_LIST:" + inactiveMemberList);
     }
 
     public void sendPrivateMessage(String from, String to, String message) {
@@ -203,7 +217,7 @@ public class Server {
             first = false;
         }
         ClientHandler requester = clients.get(requestingClient);
-        if (requester != null && !details.isEmpty()) {
+        if (requester != null && details.length() > 0) {
             requester.sendMessage("MEMBER_DETAILS:" + details.toString());
         }
     }
@@ -212,24 +226,37 @@ public class Server {
         return String.join(",", clients.keySet());
     }
 
+    public String getInactiveMemberList() {
+        StringBuilder builder = new StringBuilder();
+        boolean first = true;
+        List<String> sortedMembers = new ArrayList<>(inactiveMembers);
+        Collections.sort(sortedMembers);
+        for (String member : sortedMembers) {
+            if (clients.containsKey(member)) continue;
+            if (!member.isEmpty()) {
+                if (!first) {
+                    builder.append(",");
+                } else {
+                    first = false;
+                }
+                builder.append(member);
+            }
+        }
+        return builder.toString();
+    }
+
     public boolean isClientCoordinator(String clientId) {
         return clientId != null && clientId.equals(currentCoordinator);
     }
 
-    public void shutdown() {
+    public synchronized void shutdown() {
+        if (!isRunning) return;
         isRunning = false;
         try {
-            // Notify all clients about shutdown
             broadcastMessage("SERVER_SHUTTING_DOWN");
-
-            // Give clients a brief moment to receive the message
             try {
                 Thread.sleep(200);
-            } catch (InterruptedException e) {
-                // Ignore
-            }
-
-            // Close all client connections
+            } catch (InterruptedException e) {}
             for (ClientHandler client : new ArrayList<>(clients.values())) {
                 try {
                     client.closeConnection();
@@ -239,13 +266,15 @@ public class Server {
             }
             clients.clear();
             clientThreadPool.shutdownNow();
-            if (emptyServerTimer != null) {
-                emptyServerTimer.cancel();
-            }
+            cancelShutdownCountdown();
             if (!serverSocket.isClosed()) {
                 serverSocket.close();
             }
             System.out.println("Server shutdown complete");
+            if (!testMode && !(Thread.currentThread().getName().contains("Shutdown") ||
+                    Thread.currentThread().getName().equals("ShutdownThread"))) {
+                System.exit(0);
+            }
         } catch (IOException ex) {
             System.err.println("Error during server shutdown: " + ex.getMessage());
         }
@@ -255,29 +284,26 @@ public class Server {
         return isRunning && !serverSocket.isClosed();
     }
 
+    private String cleanMemberName(String memberName) {
+        if (memberName == null || memberName.trim().isEmpty()) {
+            return "";
+        }
+        return memberName.trim().replace(":", "");
+    }
+
     public static void main(String[] args) {
         if (args.length != 1) {
             System.out.println("Usage: java Server <port>");
             System.exit(1);
         }
-
         try {
             int port = Integer.parseInt(args[0]);
-
-            // Check port range
-            if (port < 5000 || port > 65535) {
-                System.err.println("Port must be between 5000 and 65535");
-                System.exit(1);
-            }
-
             System.out.println("Starting server on port " + port);
             Server server = new Server(port);
-
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 System.out.println("Shutting down server...");
                 server.shutdown();
             }));
-
             while (server.isRunning()) {
                 try {
                     Thread.sleep(1000);
