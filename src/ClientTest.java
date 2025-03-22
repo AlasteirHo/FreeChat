@@ -33,7 +33,7 @@ public class ClientTest {
             return new ByteArrayInputStream(new byte[0]);
         }
         @Override
-        public synchronized void close() throws IOException {
+        public synchronized void close() {
             closed = true;
         }
         @Override
@@ -52,7 +52,7 @@ public class ClientTest {
         private static int pickRandomServerPort() throws IOException {
             int port = findRandomPortInRange();
             if (port == -1) {
-                throw new IOException("Could not find a free port in [5000..65535].");
+                throw new IOException("Could not find a free port between 5000 to 65535.");
             }
             return port;
         }
@@ -63,7 +63,9 @@ public class ClientTest {
         @Override public void sendMemberDetails(String clientId) {}
         @Override public boolean isClientCoordinator(String clientId) { return false; }
         @Override public void shutdown() {}
-        @Override public boolean isRunning() { return false; }
+        @Override public boolean isRunning() {
+            return false;
+        }
         @Override public void removeClient(String clientId) {}
     }
 
