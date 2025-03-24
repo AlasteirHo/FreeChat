@@ -32,20 +32,20 @@ public class ServerTest {
         Random random = new Random();
         for (int i = 0; i < 20; i++) {
             int port = 5000 + random.nextInt(65536 - 5000);
-            try (ServerSocket socket = new ServerSocket(port)) {
+            try (ServerSocket _ = new ServerSocket(port)) {
                 return port;
             } catch (IOException e) {
-                // Try next port
+                // continue
             }
         }
         return -1;
     }
 
     @Test
-    public void testValidServerPort() {
-        System.out.println("Running testServerConstructorValidPort: Verifying that the server is running after construction.");
+    public void testServerStartup() {
+        System.out.println("Running testServerStartup: Verifying that the server is running after construction.");
         assertTrue(server.isRunning(), "Server should be running after construction");
-        System.out.println("testServerConstructorValidPort passed: Server constructed on port " + port);
+        System.out.println("testServerStartup passed: Server constructed on port " + port);
     }
 
     @Test
@@ -89,7 +89,7 @@ public class ServerTest {
         System.out.println("testShutdownClosesServerSocket passed: ServerSocket is closed after shutdown.");
     }
 
-    // Helper method to register dummy client
+    // Helper method to register a test client
     private DummyClientHandler createAndRegisterClient(String clientName) throws IOException {
         DummySocket socket = new DummySocket();
         DummyClientHandler client = new DummyClientHandler(socket, server);
@@ -124,7 +124,7 @@ public class ServerTest {
         createAndRegisterClient("Client1");
         createAndRegisterClient("Client2");
 
-        // Verify that the first registered client is initially the coordinator
+        // Verify that the first registered client is assigned as the coordinator
         assertTrue(server.isClientCoordinator("Client1"), "Client1 should be the initial coordinator");
 
         // Remove the coordinator (Client1)
@@ -137,7 +137,7 @@ public class ServerTest {
     }
     @Test
     public void testActiveAndInactiveMembers() throws Exception {
-        System.out.println("Running testActiveAndInactiveMembers: Testing active/inactive member lists and coordinator reassignment on a persistent server instance.");
+        System.out.println("Running testActiveAndInactiveMembers: Testing inheritance of active/inactive member lists between coordinators and coordinator reassignment .");
 
         // Disable the shutdown countdown to keep the server running
         Field shutdownThreadField = Server.class.getDeclaredField("shutdownThread");
@@ -177,7 +177,7 @@ public class ServerTest {
         assertEquals("Client3", server.getMemberList(), "Active members should now be only Client3");
         assertTrue(server.isClientCoordinator("Client3"), "Client3 should be assigned as the new coordinator after Client2 leaves");
 
-        System.out.println("testActiveAndInactiveMembers_NoShutdown passed.");
+        System.out.println("testActiveAndInactiveMembers passed.");
     }
 
 

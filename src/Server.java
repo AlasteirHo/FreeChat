@@ -8,13 +8,13 @@ public class Server {
     public static boolean testMode = false;
 
     private final ServerSocket serverSocket;
-    private final Map<String, ClientHandler> clients = new ConcurrentHashMap<>();
+    private final Map<String, ClientHandler> clients = new ConcurrentHashMap<>(); // Mapping usernames by <custom name> + #<RandomUserID> to ensure uniqueness (Discord legacy format)
     private String currentCoordinator = null;
-    private final ExecutorService clientThreadPool = Executors.newCachedThreadPool();
+    private final ExecutorService clientThreadPool = Executors.newCachedThreadPool(); // Crucial for creating/reusing a free thread for each new client who joins
     private volatile boolean isRunning;
 
     // Simplified inactive members tracking
-    private final Set<String> inactiveMembers = ConcurrentHashMap.newKeySet();
+    private final Set<String> inactiveMembers = ConcurrentHashMap.newKeySet(); // Stores members who have left the server, optimized for multithreaded environment like the chat
 
     // Shutdown countdown thread
     private Thread shutdownThread = null;
@@ -42,7 +42,7 @@ public class Server {
             throw new IOException("Could not start server on port " + port + ": " + ex.getMessage());
         }
     }
-
+    // Handles the server shutdown due to inactivity
     private synchronized void startShutdownCountdown() {
         if (shutdownThread != null && shutdownThread.isAlive()) {
             return;
@@ -51,7 +51,7 @@ public class Server {
         shutdownThread = new Thread(() -> {
             try {
                 System.out.println("Server will shut down in 5 minutes if no clients connect");
-                broadcastMessage("SERVER_TIMEOUT:5:0");
+                broadcastMessage("SERVER_TIMEOUT:5:00");
                 for (int remainingSeconds = 270; remainingSeconds > 0; remainingSeconds -= 30) {
                     Thread.sleep(30000);
                     if (!clients.isEmpty()) {
@@ -81,54 +81,52 @@ public class Server {
         }
     }
 
+    // A separate thread to accept clients while server functionality remains responsive
     private void startAcceptingClients() {
         Thread acceptThread = new Thread(() -> {
             while (!serverSocket.isClosed()) {
                 try {
                     Socket clientSocket = serverSocket.accept();
-                    ClientHandler handler = new ClientHandler(clientSocket, this);
+                    ClientHandler handler = new ClientHandler(clientSocket, this); // Creates a new ClientHandler for every new client
                     clientThreadPool.execute(handler);
                 } catch (IOException ex) {
                     if (!serverSocket.isClosed()) {
-                        System.err.println("Accept failed: " + ex.getMessage());
+                        System.err.println("Accepting failed: " + ex.getMessage());
                     }
                 }
             }
         });
         acceptThread.start();
     }
-
+    // Handles registering clients to the server
     public synchronized void registerClient(String clientId, ClientHandler handler) {
         clients.put(clientId, handler);
-        // Clean the client ID and remove from inactive members if rejoining
-        String cleanId = cleanMemberName(clientId);
-        inactiveMembers.remove(cleanId);
 
-        // Cancel shutdown countdown when a client connects
+        // Cancel shutdown countdown when at least 1 client connects
         cancelShutdownCountdown();
-
+        // Assign coordinator to the first client to connect
         if (currentCoordinator == null) {
             setNewCoordinator(clientId);
         } else if (!clientId.equals(currentCoordinator)) {
             handler.sendMessage("COORDINATOR_INFO:" + currentCoordinator);
         }
-        broadcastMessage("Member Joined:" + clientId);
+        broadcastMessage("Member Joined: " + clientId);
         updateMemberLists();
     }
-
+    // Handles updating the member lists when a client leaves the server
     public synchronized void removeClient(String clientId) {
         clients.remove(clientId);
-        System.out.println("Client removed from member list: " + clientId);
+        System.out.println("Client removed from active member list: " + clientId);
 
-        String cleanId = cleanMemberName(clientId);
-        if (!cleanId.isEmpty()) {
-            inactiveMembers.add(cleanId);
-            System.out.println("Added to inactive members list: " + cleanId);
+        if (clientId != null && !clientId.trim().isEmpty()) {
+            inactiveMembers.add(clientId);
+            System.out.println("Added to inactive members list: " + clientId);
         }
-
+        // if the coordinator left, apply "assign a new coordinator" function
+        assert clientId != null;
         if (clientId.equals(currentCoordinator)) {
             assignNewCoordinator();
-        } else {
+        } else { // else if no coordinator to assign to, start the shutdown
             broadcastMessage("Member Left:" + clientId);
             updateMemberLists();
             if (clients.isEmpty()) {
@@ -150,10 +148,7 @@ public class Server {
                 }
             }
         } else {
-            currentCoordinator = null;
             System.out.println("No clients available for coordinator role");
-            broadcastMessage("Member Left:" + currentCoordinator);
-            updateMemberLists();
             startShutdownCountdown();
         }
     }
@@ -192,6 +187,7 @@ public class Server {
         broadcastMessage("INACTIVE_MEMBER_LIST:" + inactiveMemberList);
     }
 
+    // Routes private messages to the specific recipient based on the starting string and username specified
     public void sendPrivateMessage(String from, String to, String message) {
         ClientHandler recipient = clients.get(to);
         if (recipient != null) {
@@ -199,6 +195,7 @@ public class Server {
         }
     }
 
+    // Formats and sends the member details into the requesting client's chat
     public void sendMemberDetails(String requestingClient) {
         StringBuilder details = new StringBuilder();
         boolean first = true;
@@ -217,8 +214,8 @@ public class Server {
             first = false;
         }
         ClientHandler requester = clients.get(requestingClient);
-        if (requester != null && details.length() > 0) {
-            requester.sendMessage("MEMBER_DETAILS:" + details.toString());
+        if (requester != null && !details.isEmpty()) {
+            requester.sendMessage("MEMBER_DETAILS:" + details);
         }
     }
 
@@ -233,7 +230,7 @@ public class Server {
         Collections.sort(sortedMembers);
         for (String member : sortedMembers) {
             if (clients.containsKey(member)) continue;
-            if (!member.isEmpty()) {
+            if (member != null && !member.isEmpty()) {
                 if (!first) {
                     builder.append(",");
                 } else {
@@ -253,10 +250,13 @@ public class Server {
         if (!isRunning) return;
         isRunning = false;
         try {
-            broadcastMessage("SERVER_SHUTTING_DOWN");
+            broadcastMessage("SERVER_SHUT_DOWN");
             try {
                 Thread.sleep(200);
-            } catch (InterruptedException e) {}
+            } catch (InterruptedException _) {
+                // Sets the interrupt flag, so other parts of the code know that an interrupt was requested
+                Thread.currentThread().interrupt();
+            }
             for (ClientHandler client : new ArrayList<>(clients.values())) {
                 try {
                     client.closeConnection();
@@ -264,13 +264,14 @@ public class Server {
                     System.err.println("Error closing client connection: " + ex.getMessage());
                 }
             }
-            clients.clear();
+            clients.clear(); // Removes all clients
             clientThreadPool.shutdownNow();
             cancelShutdownCountdown();
             if (!serverSocket.isClosed()) {
                 serverSocket.close();
             }
             System.out.println("Server shutdown complete");
+            // Exits the program unless in test mode or shutdown is triggered by a designated shutdown thread
             if (!testMode && !(Thread.currentThread().getName().contains("Shutdown") ||
                     Thread.currentThread().getName().equals("ShutdownThread"))) {
                 System.exit(0);
@@ -283,14 +284,7 @@ public class Server {
     public boolean isRunning() {
         return isRunning && !serverSocket.isClosed();
     }
-
-    private String cleanMemberName(String memberName) {
-        if (memberName == null || memberName.trim().isEmpty()) {
-            return "";
-        }
-        return memberName.trim().replace(":", "");
-    }
-
+    // To run the server independently (hosting the server)
     public static void main(String[] args) {
         if (args.length != 1) {
             System.out.println("Usage: java Server <port>");
@@ -300,12 +294,9 @@ public class Server {
             int port = Integer.parseInt(args[0]);
             System.out.println("Starting server on port " + port);
             Server server = new Server(port);
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                System.out.println("Shutting down server...");
-                server.shutdown();
-            }));
+
             while (server.isRunning()) {
-                try {
+                try { // Constant ping to check if the server is running every 1 second and error handling if connection lost
                     Thread.sleep(1000);
                 } catch (InterruptedException e) {
                     System.out.println("Server interrupted, shutting down...");

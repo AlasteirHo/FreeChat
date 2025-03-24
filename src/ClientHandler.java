@@ -1,6 +1,7 @@
 import java.io.*;
 import java.net.*;
 
+// Utilize the runnable interface to create a thread when run, enters a state of constant "listening" loop to await for a request
 public class ClientHandler implements Runnable {
     private final Socket socket;
     private final Server server;
@@ -16,18 +17,18 @@ public class ClientHandler implements Runnable {
         this.out = new PrintWriter(socket.getOutputStream(), true);
     }
 
-    @Override
+    // Handles a client connection to the server or quitting, assumes a constant listening state
     public void run() {
         try {
             String initialMessage = in.readLine();
             if (initialMessage != null && initialMessage.startsWith("CONNECT:")) {
-                clientId = initialMessage.substring(8);
+                clientId = initialMessage.substring(8); // Ignore the first 8 characters of CONNECT: for message categorization
                 server.registerClient(clientId, this);
                 while (running && !socket.isClosed()) {
                     String input = in.readLine();
                     if (input == null) break;
                     if (input.equals("QUIT")) {
-                        System.out.println("Client " + clientId + " requesting quit");
+                        System.out.println("Client " + clientId + " is requesting to quit");
                         break;
                     }
                     handleMessage(input);
@@ -41,7 +42,7 @@ public class ClientHandler implements Runnable {
             closeConnection();
         }
     }
-
+    // Handles the formating of messages based on the substring that begins each message
     private void handleMessage(String message) {
         if (!running) return;
         try {
@@ -69,10 +70,12 @@ public class ClientHandler implements Runnable {
                         System.exit(0);
                     }).start();
                 } else {
+                    // Informs the host in the console that a non coordinator tried to shut the server down (Highly unlikely through chat commands)
                     System.out.println("Unauthorized server shutdown attempt by: " + clientId);
                 }
             }
         } catch (Exception ex) {
+            // Error handling in the instance a message cannot be received from a client
             System.err.println("Error processing message from " + clientId + ": " + ex.getMessage());
         }
     }
@@ -89,7 +92,7 @@ public class ClientHandler implements Runnable {
             closeConnection();
         }
     }
-
+    // Handles a client leaving the server/chat, and closes their connection to prevent zombie thread
     public synchronized void closeConnection() {
         if (!running) return;
         running = false;
