@@ -1,9 +1,5 @@
-# ChineseWhatsapp
-
-READ:
-Main Branch is for last working code with all functionalities
-
-WinnieDePooh is for the latest code with buggy features still WIP
+# FreeChat
+Star network topology based chat application.
 
 Requirements:
 Swing GUI Designer plugin on intellij
