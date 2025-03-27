@@ -110,7 +110,7 @@ public class Server {
         } else if (!clientId.equals(currentCoordinator)) {
             handler.sendMessage("COORDINATOR_INFO:" + currentCoordinator);
         }
-        broadcastMessage("Member Joined: " + clientId);
+        broadcastMessage("Member Joined:" + clientId);
         updateMemberLists();
     }
     // Handles updating the member lists when a client leaves the server
@@ -165,9 +165,9 @@ public class Server {
     }
 
     public void broadcastMessage(String message) {
-        boolean suppressConsoleOutput = message.startsWith("SERVER_TIMEOUT:") ||
-                message.startsWith("MEMBER_LIST:") ||
-                message.startsWith("INACTIVE_MEMBER_LIST:");
+        boolean suppressConsoleOutput = message.toLowerCase().startsWith("server_timeout:") ||
+                message.toLowerCase().startsWith("member_list:") ||
+                message.toLowerCase().startsWith("inactive_member_list:");
         if (!suppressConsoleOutput) {
             System.out.println(message);
         }
@@ -191,7 +191,7 @@ public class Server {
     public void sendPrivateMessage(String from, String to, String message) {
         ClientHandler recipient = clients.get(to);
         if (recipient != null) {
-            recipient.sendMessage("PRIVATE_MSG:" + from + ":" + message);
+            recipient.sendMessage("/private:" + from + ":" + message);
         }
     }
 

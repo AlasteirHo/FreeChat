@@ -119,7 +119,7 @@ public class FreeChatLauncher extends JFrame {
         }
     }
 
-    // Modified port finding to support fault injection
+    // Fault injection implementation for testing to simulate a unable to find a port due to occupancy
     public static int findRandomAvailablePort() {
         if (faultInjection) return -1; // Simulate fault condition
 

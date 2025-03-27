@@ -1,7 +1,7 @@
 import java.io.*;
 import java.net.*;
 
-// Utilize the runnable interface to create a thread when run, enters a state of constant "listening" loop to await for a request
+// Utilize the runnable interface to create a thread when run, enters a state of constant "listening" and await for a request
 public class ClientHandler implements Runnable {
     private final Socket socket;
     private final Server server;
@@ -21,13 +21,13 @@ public class ClientHandler implements Runnable {
     public void run() {
         try {
             String initialMessage = in.readLine();
-            if (initialMessage != null && initialMessage.startsWith("CONNECT:")) {
-                clientId = initialMessage.substring(8); // Ignore the first 8 characters of CONNECT: for message categorization
+            if (initialMessage != null && initialMessage.toLowerCase().startsWith("/connect:")) {
+                clientId = initialMessage.substring(9); // Ignore the first 9 characters of /connect: for message categorization
                 server.registerClient(clientId, this);
                 while (running && !socket.isClosed()) {
                     String input = in.readLine();
                     if (input == null) break;
-                    if (input.equals("QUIT")) {
+                    if (input.equalsIgnoreCase("/quit")) {
                         System.out.println("Client " + clientId + " is requesting to quit");
                         break;
                     }
@@ -42,24 +42,27 @@ public class ClientHandler implements Runnable {
             closeConnection();
         }
     }
+
     // Handles the formating of messages based on the substring that begins each message
     private void handleMessage(String message) {
         if (!running) return;
         try {
-            if (message.startsWith("BROADCAST:")) {
-                server.broadcastMessage("MSG:" + clientId + ":" + message.substring(10));
-            } else if (message.startsWith("PRIVATE:")) {
+            String lowerMessage = message.toLowerCase();
+
+            if (lowerMessage.startsWith("/broadcast")) {
+                server.broadcastMessage("/broadcast" + clientId + ":" + message.substring(10));
+            } else if (lowerMessage.startsWith("/private")) {
                 String[] parts = message.substring(8).split(":", 2);
                 server.sendPrivateMessage(clientId, parts[0], parts[1]);
-            } else if (message.equals("GET_MEMBERS")) {
+            } else if (lowerMessage.equals("/get_members")) {
                 sendMessage("MEMBER_LIST:" + server.getMemberList());
                 sendMessage("INACTIVE_MEMBER_LIST:" + server.getInactiveMemberList());
-            } else if (message.equals("REQUEST_DETAILS")) {
+            } else if (lowerMessage.equals("/request_details")) {
                 server.sendMemberDetails(clientId);
-            } else if (message.equals("SERVER_SHUTDOWN")) {
+            } else if (lowerMessage.equals("/server_shutdown")) {
                 if (server.isClientCoordinator(clientId)) {
                     System.out.println("Server shutdown requested by coordinator: " + clientId);
-                    server.broadcastMessage("SERVER_SHUTTING_DOWN");
+                    server.broadcastMessage("The Server is shutting down");
                     new Thread(() -> {
                         try {
                             Thread.sleep(500);
